@@ -10,6 +10,7 @@ use crate::app::external_endpoints::authority_for_request;
 use crate::app::support_bundles::SupportBundleQueryType;
 use crate::context::{ApiContext, audit_and_time};
 use dropshot::Body;
+use dropshot::ClientErrorStatusCode;
 use dropshot::EmptyScanParams;
 use dropshot::Header;
 use dropshot::HttpError;
@@ -7534,6 +7535,14 @@ impl NexusExternalApi for NexusExternalApiImpl {
         query_params: Query<PaginatedByName>,
     ) -> Result<HttpResponseOk<ResultsPage<UserBuiltin>>, HttpError> {
         let apictx = rqctx.context();
+
+        if !apictx.context.rate_limiting_counter.try_increment() {
+            return Err(HttpError::for_client_error_with_status(
+                None,
+                ClientErrorStatusCode::TOO_MANY_REQUESTS,
+            ));
+        }
+
         let nexus = &apictx.context.nexus;
         let query = query_params.into_inner();
         let pagparams = data_page_params_for(&rqctx, &query)?
@@ -7589,6 +7598,14 @@ impl NexusExternalApi for NexusExternalApiImpl {
         rqctx: RequestContext<ApiContext>,
     ) -> Result<HttpResponseOk<user::CurrentUser>, HttpError> {
         let apictx = rqctx.context();
+
+        if !apictx.context.rate_limiting_counter.try_increment() {
+            return Err(HttpError::for_client_error_with_status(
+                None,
+                ClientErrorStatusCode::TOO_MANY_REQUESTS,
+            ));
+        }
+
         let nexus = &apictx.context.nexus;
         let handler = async {
             let opctx =

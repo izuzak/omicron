@@ -31,6 +31,7 @@ use slog_error_chain::InlineErrorChain;
 use std::env;
 use std::future::Future;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use uuid::Uuid;
 
 use dropshot::{HttpError, HttpResponse};
@@ -90,6 +91,29 @@ impl std::borrow::Borrow<ServerContext> for ApiContext {
     }
 }
 
+#[derive(Debug)]
+pub struct RateLimitCounter {
+    count: AtomicUsize,
+    limit: usize,
+}
+
+impl RateLimitCounter {
+    pub fn new(limit: usize) -> Self {
+        Self { count: AtomicUsize::new(0), limit }
+    }
+
+    // Attempts to increment the rate limiting counter:
+    // - if at limit, returns false without incrementing
+    // - otherwise, increment and return true
+    pub fn try_increment(&self) -> bool {
+        self.count
+            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |count| {
+                if count < self.limit { Some(count + 1) } else { None }
+            })
+            .is_ok()
+    }
+}
+
 /// Shared state available to all API request handlers
 pub struct ServerContext {
     /// reference to the underlying nexus
@@ -115,6 +139,8 @@ pub struct ServerContext {
     pub(crate) console_config: ConsoleConfig,
     /// config supporting `omdb` system introspection
     pub(crate) omdb_config: OmdbConfig,
+    /// counter for rate limiting
+    pub(crate) rate_limiting_counter: RateLimitCounter,
 }
 
 pub(crate) struct ConsoleConfig {
@@ -334,6 +360,7 @@ impl ServerContext {
                 static_dir,
             },
             omdb_config: config.pkg.omdb.clone(),
+            rate_limiting_counter: RateLimitCounter::new(2),
         }))
     }
 }

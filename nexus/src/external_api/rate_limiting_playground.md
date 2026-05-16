@@ -7,7 +7,9 @@ Rate limits are interesting to me in many ways (engineering, customer
 experience, supportability) so this is a project/space for me to learn through
 exploration in a production system I want get to know better.
 
-The goal (a working rate limiting system) is not the only goal, the goal is learning. So, I might do things in sub-optimal, roundabout ways for the purpose of learning and exploration. 
+The goal (a working rate limiting system) is not the only goal, the goal is
+learning. So, I might do things in sub-optimal, roundabout ways for the purpose
+of learning and exploration. 
 
 # General notes in no particular order
 
@@ -29,9 +31,22 @@ Things that should/could exist:
 - debuggability/supportability (e.g. which users are limited or were limited,
   which overrides exist)
 
-# Nexus APIs
+# Nexus APIs and kinda a log of progress
 
 Here's what I want to try:
-1. Create or duplicate a test which makes a single request to API endpoint A and endpoint B. Pick some endpoints which don't change state. This should pass.
-2. Change the test to make 3 requests to endpoint A and 3 request to endpoint B. This should still pass.
-3. Implement the simplest possible hardcoded counter which rejects requests to endpoint A after 2 requests. Third request to endpoint A should be rejected with 429, while all requests to endpoint B should pass.
+1. Create or duplicate a test which makes a single request to API endpoint A and
+   endpoint B. Pick some endpoints which don't change state. This should pass.
+2. Change the test to make 3 requests to endpoint A and 3 request to endpoint B.
+   This should still pass.
+3. Implement the simplest possible hardcoded counter which causes requests to be
+   denied with a 429 status after some number of requests are processed. 
+    - this counter needs to be in some state that survives the request
+      lifecycle, i.e. it's attached to the server. 
+    - ServerContext might be one such place. Buuuut it's passed around wrapped
+      in an Arc, which only gives shared ownership, not mutability.
+    - i guess there are a few ways to get that, and after a bit of reading an
+      AtomicUsize might be the simplest solution. It seems to give both
+      mutability (via interior mutability) and safe access across threads.
+    - next question is where to put the "limiting" logic -- should be some code that all endpoints use.
+    - seems like there's no great place for this, hmmm. No middleware concept in dropshot or nexus, or some common path all endpoints take.
+    - so, i'll put the "limiting" logic into only those two endpoints i'm testing with, and then generalize/abstract later.
