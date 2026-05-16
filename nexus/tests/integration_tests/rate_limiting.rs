@@ -16,18 +16,15 @@ async fn test_make_single_request_to_two_endpoints(
 ) {
     let client = &cptestctx.external_client;
 
-    let current_user = NexusRequest::object_get(client, "/v1/me")
+    for _ in 0..3 {
+        NexusRequest::object_get(client, "/v1/me")
         .authn_as(AuthnMode::PrivilegedUser)
         .execute_and_parse_unwrap::<user::CurrentUser>()
         .await;
 
-    println!("current user: {current_user:#?}");
-
-    let users_builtin =
         NexusRequest::object_get(client, "/v1/system/users-builtin")
-            .authn_as(AuthnMode::PrivilegedUser)
-            .execute_and_parse_unwrap::<dropshot::ResultsPage<user::UserBuiltin>>()
-            .await;
-
-    println!("built-in users: {users_builtin:#?}");
+        .authn_as(AuthnMode::PrivilegedUser)
+        .execute_and_parse_unwrap::<dropshot::ResultsPage<user::UserBuiltin>>()
+        .await;
+    }
 }
