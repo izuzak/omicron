@@ -3,9 +3,11 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 use nexus_test_utils_macros::nexus_test;
-use nexus_types::external_api::user;
 use nexus_test_utils::http_testing::AuthnMode;
 use nexus_test_utils::http_testing::NexusRequest;
+use http::StatusCode;
+use nexus_test_utils::http_testing::{RequestBuilder, TestResponse};
+
 
 type ControlPlaneTestContext =
     nexus_test_utils::ControlPlaneTestContext<omicron_nexus::Server>;
@@ -17,14 +19,23 @@ async fn test_make_single_request_to_two_endpoints(
     let client = &cptestctx.external_client;
 
     for _ in 0..3 {
-        NexusRequest::object_get(client, "/v1/me")
-        .authn_as(AuthnMode::PrivilegedUser)
-        .execute_and_parse_unwrap::<user::CurrentUser>()
-        .await;
+        let response = request(client, "/v1/me").await;
+        assert_eq!(response.status, StatusCode::OK);
 
-        NexusRequest::object_get(client, "/v1/system/users-builtin")
-        .authn_as(AuthnMode::PrivilegedUser)
-        .execute_and_parse_unwrap::<dropshot::ResultsPage<user::UserBuiltin>>()
-        .await;
+        let response = request(client, "/v1/system/users-builtin").await;
+        assert_eq!(response.status, StatusCode::OK);
     }
+}
+
+async fn request(
+    client: &dropshot::test_util::ClientTestContext,
+    path: &str,
+) -> TestResponse {
+    NexusRequest::new(
+        RequestBuilder::new(client, http::Method::GET, path),
+    )
+    .authn_as(AuthnMode::PrivilegedUser)
+    .execute()
+    .await
+    .expect("request failed")
 }
