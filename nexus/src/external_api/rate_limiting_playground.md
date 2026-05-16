@@ -7,6 +7,8 @@ Rate limits are interesting to me in many ways (engineering, customer
 experience, supportability) so this is a project/space for me to learn through
 exploration in a production system I want get to know better.
 
+The goal (a working rate limiting system) is not the only goal, the goal is learning. So, I might do things in sub-optimal, roundabout ways for the purpose of learning and exploration. 
+
 # General notes in no particular order
 
 Sooo, a rate limiter has some notion of:
@@ -28,3 +30,8 @@ Things that should/could exist:
   which overrides exist)
 
 # Nexus APIs
+
+Here's what I want to try:
+1. Create or duplicate a test which makes a single request to API endpoint A and endpoint B. Pick some endpoints which don't change state. This should pass.
+2. Change the test to make 3 requests to endpoint A and 3 request to endpoint B. This should still pass.
+3. Implement the simplest possible hardcoded counter which rejects requests to endpoint A after 2 requests. Third request to endpoint A should be rejected with 429, while all requests to endpoint B should pass.
