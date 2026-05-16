@@ -45,6 +45,7 @@ mod projects;
 mod quiesce;
 mod quotas;
 mod rack;
+mod rate_limiting;
 mod role_assignments;
 mod router_routes;
 mod saml;
