@@ -66,3 +66,4 @@ Here's what I want to try:
       states for all the keys) when checking limits even though i could lock
       only the states for the keys i need to check
     - also, there's a choice here between the std mutex and the tokio mutex.
+5. Moving rate limiter into a separate file and adding unit tests

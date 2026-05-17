@@ -15,6 +15,7 @@ pub mod external_api; // Public for testing
 mod internal_api;
 mod lockstep_api;
 mod populate;
+mod rate_limit;
 mod saga_interface;
 
 pub use app::Nexus;

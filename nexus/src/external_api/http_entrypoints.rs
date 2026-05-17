@@ -8,9 +8,8 @@ use super::console_api;
 use crate::app::SetTargetReleaseIntent;
 use crate::app::external_endpoints::authority_for_request;
 use crate::app::support_bundles::SupportBundleQueryType;
-use crate::context::{
-    ApiContext, RateLimitKey, audit_and_time, rate_limit_error,
-};
+use crate::context::{ApiContext, audit_and_time};
+use crate::rate_limit::{rate_limit_error, RateLimitKey};
 use dropshot::Body;
 use dropshot::EmptyScanParams;
 use dropshot::Header;
