@@ -8,7 +8,7 @@ use super::console_api;
 use crate::app::SetTargetReleaseIntent;
 use crate::app::external_endpoints::authority_for_request;
 use crate::app::support_bundles::SupportBundleQueryType;
-use crate::context::{ApiContext, audit_and_time};
+use crate::context::{ApiContext, RateLimitKey, audit_and_time};
 use dropshot::Body;
 use dropshot::ClientErrorStatusCode;
 use dropshot::EmptyScanParams;
@@ -7536,7 +7536,11 @@ impl NexusExternalApi for NexusExternalApiImpl {
     ) -> Result<HttpResponseOk<ResultsPage<UserBuiltin>>, HttpError> {
         let apictx = rqctx.context();
 
-        if !apictx.context.rate_limiting_counter.try_increment() {
+        let keys = [
+            RateLimitKey::new("user_builtin_list".to_string()),
+            RateLimitKey::new("global".to_string()),
+        ];
+        if !apictx.context.rate_limiter.check_and_increment(&keys) {
             return Err(HttpError::for_client_error_with_status(
                 None,
                 ClientErrorStatusCode::TOO_MANY_REQUESTS,
@@ -7599,7 +7603,11 @@ impl NexusExternalApi for NexusExternalApiImpl {
     ) -> Result<HttpResponseOk<user::CurrentUser>, HttpError> {
         let apictx = rqctx.context();
 
-        if !apictx.context.rate_limiting_counter.try_increment() {
+        let keys = [
+            RateLimitKey::new("current_user_view".to_string()),
+            RateLimitKey::new("global".to_string()),
+        ];
+        if !apictx.context.rate_limiter.check_and_increment(&keys) {
             return Err(HttpError::for_client_error_with_status(
                 None,
                 ClientErrorStatusCode::TOO_MANY_REQUESTS,

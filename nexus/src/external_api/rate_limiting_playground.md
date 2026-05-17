@@ -38,8 +38,9 @@ Here's what I want to try:
    endpoint B. Pick some endpoints which don't change state. This should pass.
 2. Change the test to make 3 requests to endpoint A and 3 request to endpoint B.
    This should still pass.
-3. Implement the simplest possible hardcoded counter which causes requests to be
-   denied with a 429 status after some number of requests are processed. 
+3. Implement the simplest possible hardcoded in-memory counter which causes
+   requests to be denied with a 429 status after some number of requests are
+   processed. 
     - this counter needs to be in some state that survives the request
       lifecycle, i.e. it's attached to the server. 
     - ServerContext might be one such place. Buuuut it's passed around wrapped
@@ -47,6 +48,20 @@ Here's what I want to try:
     - i guess there are a few ways to get that, and after a bit of reading an
       AtomicUsize might be the simplest solution. It seems to give both
       mutability (via interior mutability) and safe access across threads.
-    - next question is where to put the "limiting" logic -- should be some code that all endpoints use.
-    - seems like there's no great place for this, hmmm. No middleware concept in dropshot or nexus, or some common path all endpoints take.
-    - so, i'll put the "limiting" logic into only those two endpoints i'm testing with, and then generalize/abstract later.
+    - next question is where to put the "limiting" logic -- should be some code
+      that all endpoints use.
+    - seems like there's no great place for this, hmmm. No middleware concept in
+      dropshot or nexus, or some common path all endpoints take.
+    - so, i'll put the "limiting" logic into only those two endpoints i'm
+      testing with, and then generalize/abstract later.
+4. Okay, there are several things I could explore next. Gonna try improving the
+   limiter to support multiple limits via a limiter key.
+    - each key has its own limiter state
+    - when a request is being processed, determine the list of limiter keys that
+      should be checked (this is a part of the policy). For now, the list is
+      hardcoded and simple.
+    - all limiting keys for a request are checked and the request is allowed
+      only if checking all keys succeeds
+    - for the initial version, i'll lock the whole container (with rate limiting
+      states for all the keys) when checking limits even though i could lock
+      only the states for the keys i need to check

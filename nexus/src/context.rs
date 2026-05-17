@@ -28,10 +28,10 @@ use oximeter::types::ProducerRegistry;
 use oximeter_instruments::http::{HttpService, LatencyTracker};
 use slog::Logger;
 use slog_error_chain::InlineErrorChain;
+use std::collections::HashMap;
 use std::env;
 use std::future::Future;
-use std::sync::Arc;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
 use uuid::Uuid;
 
 use dropshot::{HttpError, HttpResponse};
@@ -91,26 +91,52 @@ impl std::borrow::Borrow<ServerContext> for ApiContext {
     }
 }
 
-#[derive(Debug)]
-pub struct RateLimitCounter {
-    count: AtomicUsize,
-    limit: usize,
+#[derive(Clone, Debug, Eq, PartialEq, Hash)]
+pub struct RateLimitKey(String);
+
+impl RateLimitKey {
+    pub fn new(key: impl Into<String>) -> Self {
+        Self(key.into())
+    }
 }
 
-impl RateLimitCounter {
-    pub fn new(limit: usize) -> Self {
-        Self { count: AtomicUsize::new(0), limit }
+#[derive(Debug)]
+pub struct RateLimitState {
+    limit: usize,
+    count: usize,
+}
+
+pub struct RateLimiter {
+    states: Mutex<HashMap<RateLimitKey, RateLimitState>>,
+}
+
+impl RateLimiter {
+    pub fn new() -> Self {
+        Self { states: Mutex::new(HashMap::new()) }
     }
 
-    // Attempts to increment the rate limiting counter:
-    // - if at limit, returns false without incrementing
-    // - otherwise, increment and return true
-    pub fn try_increment(&self) -> bool {
-        self.count
-            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |count| {
-                if count < self.limit { Some(count + 1) } else { None }
-            })
-            .is_ok()
+    // Checks limits for all passed keys:
+    // - if the check fails for any key, return false without incrementing anything
+    // - otherwise, increment counters for all passed keys and return false
+    pub fn check_and_increment(&self, keys: &[RateLimitKey]) -> bool {
+        let mut states = self.states.lock().unwrap();
+
+        for key in keys {
+            if let Some(state) = states.get(key) {
+                if state.count >= state.limit {
+                    return false;
+                }
+            } else {
+                states
+                    .insert(key.clone(), RateLimitState { limit: 2, count: 0 });
+            }
+        }
+
+        for key in keys {
+            states.get_mut(&key).unwrap().count += 1;
+        }
+
+        true
     }
 }
 
@@ -140,7 +166,7 @@ pub struct ServerContext {
     /// config supporting `omdb` system introspection
     pub(crate) omdb_config: OmdbConfig,
     /// counter for rate limiting
-    pub(crate) rate_limiting_counter: RateLimitCounter,
+    pub(crate) rate_limiter: RateLimiter,
 }
 
 pub(crate) struct ConsoleConfig {
@@ -360,7 +386,7 @@ impl ServerContext {
                 static_dir,
             },
             omdb_config: config.pkg.omdb.clone(),
-            rate_limiting_counter: RateLimitCounter::new(2),
+            rate_limiter: RateLimiter::new(),
         }))
     }
 }
