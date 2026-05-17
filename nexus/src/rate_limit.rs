@@ -78,4 +78,30 @@ mod tests {
         assert!(limiter.check_and_increment(&[key_b.clone()]));
         assert!(!limiter.check_and_increment(&[key_b]));
     }
+
+    #[test]
+    fn rate_limiter_multi_key_check_is_all_or_nothing() {
+        let limiter = RateLimiter::new();
+
+        let shared = RateLimitKey::new("shared");
+        let key_a = RateLimitKey::new("key_a");
+        let key_b = RateLimitKey::new("key_b");
+
+        // these two check_and_increment calls succeed, but they increment the
+        // shared key's counter to the limit
+        assert!(limiter.check_and_increment(&[key_a.clone(), shared.clone()]));
+        assert!(limiter.check_and_increment(&[key_a.clone(), shared.clone()]));
+
+        // this check_and_increment fails since it also uses the shared key
+        // and should not increment any of the two counters
+        assert!(!limiter.check_and_increment(&[key_b.clone(), shared.clone()]));
+
+        // because key_b's counter wasn't incremented, two check_and_increment
+        // calls should still succeed and the third one should fail
+        assert!(limiter.check_and_increment(&[key_b.clone()]));
+        assert!(limiter.check_and_increment(&[key_b.clone()]));
+        assert!(!limiter.check_and_increment(&[key_b]));
+    }
+
+
 }
