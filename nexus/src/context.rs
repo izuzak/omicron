@@ -12,6 +12,7 @@ use authn::external::spoof::HttpAuthnSpoof;
 use authn::external::token::HttpAuthnToken;
 use camino::Utf8PathBuf;
 use chrono::Duration;
+use dropshot::ClientErrorStatusCode;
 use nexus_config::NexusConfig;
 use nexus_config::OmdbConfig;
 use nexus_config::SchemeName;
@@ -117,7 +118,7 @@ impl RateLimiter {
 
     // Checks limits for all passed keys:
     // - if the check fails for any key, return false without incrementing anything
-    // - otherwise, increment counters for all passed keys and return false
+    // - otherwise, increment counters for all passed keys and return true
     pub fn check_and_increment(&self, keys: &[RateLimitKey]) -> bool {
         let mut states = self.states.lock().unwrap();
 
@@ -138,6 +139,13 @@ impl RateLimiter {
 
         true
     }
+}
+
+pub(crate) fn rate_limit_error() -> HttpError {
+    HttpError::for_client_error_with_status(
+        Some(String::from("RateLimitExceeded")),
+        ClientErrorStatusCode::TOO_MANY_REQUESTS,
+    )
 }
 
 /// Shared state available to all API request handlers
