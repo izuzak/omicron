@@ -9,7 +9,7 @@ use crate::app::SetTargetReleaseIntent;
 use crate::app::external_endpoints::authority_for_request;
 use crate::app::support_bundles::SupportBundleQueryType;
 use crate::context::{ApiContext, audit_and_time};
-use crate::rate_limit::{rate_limit_error, RateLimitKey};
+use crate::rate_limit::{RateLimitKey, rate_limit_error};
 use dropshot::Body;
 use dropshot::EmptyScanParams;
 use dropshot::Header;

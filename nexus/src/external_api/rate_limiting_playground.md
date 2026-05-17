@@ -67,3 +67,5 @@ Here's what I want to try:
       only the states for the keys i need to check
     - also, there's a choice here between the std mutex and the tokio mutex.
 5. Moving rate limiter into a separate file and adding unit tests
+6. Dont create counters when multi-key check fails
+    - Also add a way to get the counter value for a unit test for this

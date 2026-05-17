@@ -1,7 +1,7 @@
+use dropshot::ClientErrorStatusCode;
+use dropshot::HttpError;
 use std::collections::HashMap;
 use std::sync::Mutex;
-use dropshot::HttpError;
-use dropshot::ClientErrorStatusCode;
 
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
 pub(crate) struct RateLimitKey(String);
@@ -38,17 +38,24 @@ impl RateLimiter {
                 if state.count >= state.limit {
                     return false;
                 }
-            } else {
-                states
-                    .insert(key.clone(), RateLimitState { limit: 2, count: 0 });
             }
         }
 
         for key in keys {
-            states.get_mut(&key).unwrap().count += 1;
+            if let Some(state) = states.get_mut(key) {
+                state.count += 1;
+            } else {
+                states
+                    .insert(key.clone(), RateLimitState { limit: 2, count: 1 });
+            }
         }
 
         true
+    }
+
+    #[cfg(test)]
+    pub fn count_for_key(&self, key: &RateLimitKey) -> Option<usize> {
+        self.states.lock().unwrap().get(key).map(|state| state.count)
     }
 }
 
@@ -103,5 +110,31 @@ mod tests {
         assert!(!limiter.check_and_increment(&[key_b]));
     }
 
+    #[test]
+    fn rate_limiter_counter_not_created_on_failed_multi_key_check() {
+        let limiter = RateLimiter::new();
 
+        let limited = RateLimitKey::new("limited");
+        let missing = RateLimitKey::new("missing");
+
+        // make two checks to reach the limit for "limited" key
+        assert!(limiter.check_and_increment(&[limited.clone()]));
+        assert!(limiter.check_and_increment(&[limited.clone()]));
+
+        // verify that counter exists for "limited" and doesn't for "missing"
+        assert_eq!(limiter.count_for_key(&limited), Some(2));
+        assert_eq!(limiter.count_for_key(&missing), None);
+
+        // make a check for both keys. This will fail since the limit was
+        // reached for one key. The counter should not be created for the
+        // other key.
+        assert!(
+            !limiter.check_and_increment(&[missing.clone(), limited.clone()])
+        );
+
+        // verify that the counter stil exists for "limited" and still doesn't
+        // exist for "missing"
+        assert_eq!(limiter.count_for_key(&limited), Some(2));
+        assert_eq!(limiter.count_for_key(&missing), None);
+    }
 }

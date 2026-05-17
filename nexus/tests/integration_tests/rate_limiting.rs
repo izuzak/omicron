@@ -12,9 +12,7 @@ type ControlPlaneTestContext =
     nexus_test_utils::ControlPlaneTestContext<omicron_nexus::Server>;
 
 #[nexus_test]
-async fn test_rate_limiting(
-    cptestctx: &ControlPlaneTestContext,
-) {
+async fn test_rate_limiting(cptestctx: &ControlPlaneTestContext) {
     let client = &cptestctx.external_client;
 
     let response = request(client, "/v1/me").await;
