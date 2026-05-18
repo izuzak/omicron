@@ -9,7 +9,9 @@ use crate::app::SetTargetReleaseIntent;
 use crate::app::external_endpoints::authority_for_request;
 use crate::app::support_bundles::SupportBundleQueryType;
 use crate::context::{ApiContext, audit_and_time};
-use crate::rate_limit::{RateLimitCheck, RateLimitKey, rate_limit_error};
+use crate::rate_limit::{
+    RateLimitCheck, RateLimitKey, RateLimiter, rate_limit_error,
+};
 use dropshot::Body;
 use dropshot::EmptyScanParams;
 use dropshot::Header;
@@ -143,6 +145,17 @@ fn checks_for_endpoint(endpoint: &str) -> Vec<RateLimitCheck> {
         ],
         _ => vec![],
     }
+}
+
+fn check_rate_limits(
+    rate_limiter: &RateLimiter,
+    checks: &[RateLimitCheck],
+) -> Result<(), HttpError> {
+    rate_limiter
+        .check_and_increment(&checks)
+        .map_err(|_| rate_limit_error())?;
+
+    Ok(())
 }
 
 enum NexusExternalApiImpl {}
@@ -7551,12 +7564,7 @@ impl NexusExternalApi for NexusExternalApiImpl {
         let apictx = rqctx.context();
 
         let checks = checks_for_endpoint("user_builtin_list");
-
-        apictx
-            .context
-            .rate_limiter
-            .check_and_increment(&checks)
-            .map_err(|_| rate_limit_error())?;
+        check_rate_limits(&apictx.context.rate_limiter, &checks)?;
 
         let nexus = &apictx.context.nexus;
         let query = query_params.into_inner();
@@ -7615,12 +7623,7 @@ impl NexusExternalApi for NexusExternalApiImpl {
         let apictx = rqctx.context();
 
         let checks = checks_for_endpoint("current_user_view");
-
-        apictx
-            .context
-            .rate_limiter
-            .check_and_increment(&checks)
-            .map_err(|_| rate_limit_error())?;
+        check_rate_limits(&apictx.context.rate_limiter, &checks)?;
 
         let nexus = &apictx.context.nexus;
         let handler = async {

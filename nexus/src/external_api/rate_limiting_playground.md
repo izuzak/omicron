@@ -78,3 +78,4 @@ Here's what I want to try:
     - First step: just replace the hardcoded limit and pass it in as a
       RateLimitCheck.
     - Second step: extract checks for endpoints into a separate method.
+    - Third step: extract rate limit checking into a separate method.
