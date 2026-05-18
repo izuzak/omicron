@@ -77,3 +77,4 @@ Here's what I want to try:
    by not hardcoding the limit and instead passing it to the check.
     - First step: just replace the hardcoded limit and pass it in as a
       RateLimitCheck.
+    - Second step: extract checks for endpoints into a separate method.

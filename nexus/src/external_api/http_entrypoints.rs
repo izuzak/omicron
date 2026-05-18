@@ -131,6 +131,20 @@ pub(crate) fn external_api() -> NexusApiDescription {
         .expect("registered entrypoints")
 }
 
+fn checks_for_endpoint(endpoint: &str) -> Vec<RateLimitCheck> {
+    match endpoint {
+        "current_user_view" => vec![
+            RateLimitCheck::new(RateLimitKey::new("current_user_view"), 2),
+            RateLimitCheck::new(RateLimitKey::new("global"), 2),
+        ],
+        "user_builtin_list" => vec![
+            RateLimitCheck::new(RateLimitKey::new("user_builtin_list"), 2),
+            RateLimitCheck::new(RateLimitKey::new("global"), 2),
+        ],
+        _ => vec![],
+    }
+}
+
 enum NexusExternalApiImpl {}
 
 impl NexusExternalApi for NexusExternalApiImpl {
@@ -7536,13 +7550,7 @@ impl NexusExternalApi for NexusExternalApiImpl {
     ) -> Result<HttpResponseOk<ResultsPage<UserBuiltin>>, HttpError> {
         let apictx = rqctx.context();
 
-        let checks = [
-            RateLimitCheck::new(
-                RateLimitKey::new("user_builtin_list".to_string()),
-                2,
-            ),
-            RateLimitCheck::new(RateLimitKey::new("global".to_string()), 2),
-        ];
+        let checks = checks_for_endpoint("user_builtin_list");
 
         apictx
             .context
@@ -7606,13 +7614,7 @@ impl NexusExternalApi for NexusExternalApiImpl {
     ) -> Result<HttpResponseOk<user::CurrentUser>, HttpError> {
         let apictx = rqctx.context();
 
-        let checks = [
-            RateLimitCheck::new(
-                RateLimitKey::new("current_user_view".to_string()),
-                2,
-            ),
-            RateLimitCheck::new(RateLimitKey::new("global".to_string()), 2),
-        ];
+        let checks = checks_for_endpoint("current_user_view");
 
         apictx
             .context
