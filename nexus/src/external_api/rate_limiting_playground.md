@@ -69,3 +69,5 @@ Here's what I want to try:
 5. Moving rate limiter into a separate file and adding unit tests
 6. Dont create counters when multi-key check fails
     - Also add a way to get the counter value for a unit test for this
+7. Return a RateLimitDecision enum instead of a boolean to allow determining for which key the limit was reached.
+    - Might turn this into a Result?
