@@ -18,8 +18,19 @@ impl RateLimitKey {
 
 #[derive(Debug)]
 pub struct RateLimitState {
-    limit: usize,
     count: usize,
+}
+
+#[derive(Clone, Debug)]
+pub struct RateLimitCheck {
+    key: RateLimitKey,
+    limit: usize,
+}
+
+impl RateLimitCheck {
+    pub(crate) fn new(key: RateLimitKey, limit: usize) -> Self {
+        Self { key, limit }
+    }
 }
 
 pub(crate) struct RateLimiter {
@@ -34,28 +45,28 @@ impl RateLimiter {
     }
 
     // Checks limits for all passed keys:
-    // - if the check fails for any key, return false without incrementing anything
-    // - otherwise, increment counters for all passed keys and return true
+    // - if the check fails for any key, return Err without incrementing anything
+    // - otherwise, increment counters for all passed keys and return Ok
     pub fn check_and_increment(
         &self,
-        keys: &[RateLimitKey],
+        checks: &[RateLimitCheck],
     ) -> RateLimitResult {
         let mut states = self.states.lock().unwrap();
 
-        for key in keys {
-            if let Some(state) = states.get(key) {
-                if state.count >= state.limit {
-                    return Err(key.clone());
+        for check in checks {
+            if let Some(state) = states.get(&check.key) {
+                if state.count >= check.limit {
+                    return Err((&check.key).clone());
                 }
             }
         }
 
-        for key in keys {
-            if let Some(state) = states.get_mut(key) {
+        for check in checks {
+            if let Some(state) = states.get_mut(&check.key) {
                 state.count += 1;
             } else {
                 states
-                    .insert(key.clone(), RateLimitState { limit: 2, count: 1 });
+                    .insert((&check.key).clone(), RateLimitState { count: 1 });
             }
         }
 
@@ -86,17 +97,20 @@ mod tests {
         let key_a = RateLimitKey::new("endpoint_a");
         let key_b = RateLimitKey::new("endpoint_b");
 
-        assert_not_limited(limiter.check_and_increment(&[key_a.clone()]));
-        assert_not_limited(limiter.check_and_increment(&[key_a.clone()]));
+        let check_key_a = RateLimitCheck { key: key_a.clone(), limit: 2 };
+        let check_key_b = RateLimitCheck { key: key_b.clone(), limit: 2 };
+
+        assert_not_limited(limiter.check_and_increment(&[check_key_a.clone()]));
+        assert_not_limited(limiter.check_and_increment(&[check_key_a.clone()]));
         assert_limited(
-            limiter.check_and_increment(&[key_a.clone()]),
+            limiter.check_and_increment(&[check_key_a.clone()]),
             key_a.clone(),
         );
 
-        assert_not_limited(limiter.check_and_increment(&[key_b.clone()]));
-        assert_not_limited(limiter.check_and_increment(&[key_b.clone()]));
+        assert_not_limited(limiter.check_and_increment(&[check_key_b.clone()]));
+        assert_not_limited(limiter.check_and_increment(&[check_key_b.clone()]));
         assert_limited(
-            limiter.check_and_increment(&[key_b.clone()]),
+            limiter.check_and_increment(&[check_key_b.clone()]),
             key_b.clone(),
         );
     }
@@ -109,28 +123,41 @@ mod tests {
         let key_a = RateLimitKey::new("key_a");
         let key_b = RateLimitKey::new("key_b");
 
+        let check_shared = RateLimitCheck { key: shared.clone(), limit: 2 };
+        let check_key_a = RateLimitCheck { key: key_a.clone(), limit: 2 };
+        let check_key_b = RateLimitCheck { key: key_b.clone(), limit: 2 };
+
         // these two check_and_increment calls succeed, but they increment the
         // shared key's counter to the limit
         assert_not_limited(
-            limiter.check_and_increment(&[key_a.clone(), shared.clone()]),
+            limiter.check_and_increment(&[
+                check_key_a.clone(),
+                check_shared.clone(),
+            ]),
         );
         assert_not_limited(
-            limiter.check_and_increment(&[key_a.clone(), shared.clone()]),
+            limiter.check_and_increment(&[
+                check_key_a.clone(),
+                check_shared.clone(),
+            ]),
         );
 
         // this check_and_increment fails since it also uses the shared key
         // and should not increment any of the two counters
         assert_limited(
-            limiter.check_and_increment(&[key_b.clone(), shared.clone()]),
+            limiter.check_and_increment(&[
+                check_key_b.clone(),
+                check_shared.clone(),
+            ]),
             shared.clone(),
         );
 
         // because key_b's counter wasn't incremented, two check_and_increment
         // calls should still succeed and the third one should fail
-        assert_not_limited(limiter.check_and_increment(&[key_b.clone()]));
-        assert_not_limited(limiter.check_and_increment(&[key_b.clone()]));
+        assert_not_limited(limiter.check_and_increment(&[check_key_b.clone()]));
+        assert_not_limited(limiter.check_and_increment(&[check_key_b.clone()]));
         assert_limited(
-            limiter.check_and_increment(&[key_b.clone()]),
+            limiter.check_and_increment(&[check_key_b.clone()]),
             key_b.clone(),
         );
     }
@@ -142,9 +169,16 @@ mod tests {
         let limited = RateLimitKey::new("limited");
         let missing = RateLimitKey::new("missing");
 
+        let check_limited = RateLimitCheck { key: limited.clone(), limit: 2 };
+        let check_missing = RateLimitCheck { key: missing.clone(), limit: 2 };
+
         // make two checks to reach the limit for "limited" key
-        assert_not_limited(limiter.check_and_increment(&[limited.clone()]));
-        assert_not_limited(limiter.check_and_increment(&[limited.clone()]));
+        assert_not_limited(
+            limiter.check_and_increment(&[check_limited.clone()]),
+        );
+        assert_not_limited(
+            limiter.check_and_increment(&[check_limited.clone()]),
+        );
 
         // verify that counter exists for "limited" and doesn't for "missing"
         assert_eq!(limiter.count_for_key(&limited), Some(2));
@@ -154,7 +188,10 @@ mod tests {
         // reached for one key. The counter should not be created for the
         // other key.
         assert_limited(
-            limiter.check_and_increment(&[missing.clone(), limited.clone()]),
+            limiter.check_and_increment(&[
+                check_missing.clone(),
+                check_limited.clone(),
+            ]),
             limited.clone(),
         );
 

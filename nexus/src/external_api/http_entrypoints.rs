@@ -9,7 +9,7 @@ use crate::app::SetTargetReleaseIntent;
 use crate::app::external_endpoints::authority_for_request;
 use crate::app::support_bundles::SupportBundleQueryType;
 use crate::context::{ApiContext, audit_and_time};
-use crate::rate_limit::{RateLimitKey, rate_limit_error};
+use crate::rate_limit::{RateLimitCheck, RateLimitKey, rate_limit_error};
 use dropshot::Body;
 use dropshot::EmptyScanParams;
 use dropshot::Header;
@@ -7536,14 +7536,18 @@ impl NexusExternalApi for NexusExternalApiImpl {
     ) -> Result<HttpResponseOk<ResultsPage<UserBuiltin>>, HttpError> {
         let apictx = rqctx.context();
 
-        let keys = [
-            RateLimitKey::new("user_builtin_list".to_string()),
-            RateLimitKey::new("global".to_string()),
+        let checks = [
+            RateLimitCheck::new(
+                RateLimitKey::new("user_builtin_list".to_string()),
+                2,
+            ),
+            RateLimitCheck::new(RateLimitKey::new("global".to_string()), 2),
         ];
+
         apictx
             .context
             .rate_limiter
-            .check_and_increment(&keys)
+            .check_and_increment(&checks)
             .map_err(|_| rate_limit_error())?;
 
         let nexus = &apictx.context.nexus;
@@ -7602,14 +7606,18 @@ impl NexusExternalApi for NexusExternalApiImpl {
     ) -> Result<HttpResponseOk<user::CurrentUser>, HttpError> {
         let apictx = rqctx.context();
 
-        let keys = [
-            RateLimitKey::new("current_user_view".to_string()),
-            RateLimitKey::new("global".to_string()),
+        let checks = [
+            RateLimitCheck::new(
+                RateLimitKey::new("current_user_view".to_string()),
+                2,
+            ),
+            RateLimitCheck::new(RateLimitKey::new("global".to_string()), 2),
         ];
+
         apictx
             .context
             .rate_limiter
-            .check_and_increment(&keys)
+            .check_and_increment(&checks)
             .map_err(|_| rate_limit_error())?;
 
         let nexus = &apictx.context.nexus;

@@ -69,6 +69,11 @@ Here's what I want to try:
 5. Moving rate limiter into a separate file and adding unit tests
 6. Dont create counters when multi-key check fails
     - Also add a way to get the counter value for a unit test for this
-7. Return a RateLimitDecision enum instead of a boolean to allow determining for which key the limit was reached.
+7. Return a RateLimitDecision enum instead of a boolean to allow determining for
+   which key the limit was reached.
     - Might turn this into a Result?
     - yeah, converted to a Result
+8. Ok, I want to finally move in the direction of having rate limiting policies
+   by not hardcoding the limit and instead passing it to the check.
+    - First step: just replace the hardcoded limit and pass it in as a
+      RateLimitCheck.
