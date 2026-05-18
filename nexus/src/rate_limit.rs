@@ -6,6 +6,7 @@ use dropshot::ClientErrorStatusCode;
 use dropshot::HttpError;
 use std::collections::HashMap;
 use std::sync::Mutex;
+use std::time::{Duration, Instant};
 
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
 pub(crate) struct RateLimitKey(String);
@@ -19,17 +20,23 @@ impl RateLimitKey {
 #[derive(Debug)]
 pub struct RateLimitState {
     count: usize,
+    window_started_at: Instant,
 }
 
 #[derive(Clone, Debug)]
 pub struct RateLimitCheck {
     key: RateLimitKey,
     limit: usize,
+    window: Duration,
 }
 
 impl RateLimitCheck {
-    pub(crate) fn new(key: RateLimitKey, limit: usize) -> Self {
-        Self { key, limit }
+    pub(crate) fn new(
+        key: RateLimitKey,
+        limit: usize,
+        window: Duration,
+    ) -> Self {
+        Self { key, limit, window }
     }
 }
 
@@ -51,11 +58,15 @@ impl RateLimiter {
         &self,
         checks: &[RateLimitCheck],
     ) -> RateLimitResult {
+        let now = Instant::now();
         let mut states = self.states.lock().unwrap();
 
         for check in checks {
             if let Some(state) = states.get(&check.key) {
-                if state.count >= check.limit {
+                if (state.count >= check.limit)
+                    && (now.duration_since(state.window_started_at)
+                        < check.window)
+                {
                     return Err((&check.key).clone());
                 }
             }
@@ -63,10 +74,17 @@ impl RateLimiter {
 
         for check in checks {
             if let Some(state) = states.get_mut(&check.key) {
-                state.count += 1;
+                if now.duration_since(state.window_started_at) >= check.window {
+                    state.window_started_at = now;
+                    state.count = 1;
+                } else {
+                    state.count += 1;
+                }
             } else {
-                states
-                    .insert((&check.key).clone(), RateLimitState { count: 1 });
+                states.insert(
+                    check.key.clone(),
+                    RateLimitState { count: 1, window_started_at: now },
+                );
             }
         }
 
@@ -107,8 +125,16 @@ mod tests {
         let key_a = RateLimitKey::new("endpoint_a");
         let key_b = RateLimitKey::new("endpoint_b");
 
-        let check_key_a = RateLimitCheck { key: key_a.clone(), limit: 2 };
-        let check_key_b = RateLimitCheck { key: key_b.clone(), limit: 2 };
+        let check_key_a = RateLimitCheck {
+            key: key_a.clone(),
+            limit: 2,
+            window: Duration::from_secs(3600),
+        };
+        let check_key_b = RateLimitCheck {
+            key: key_b.clone(),
+            limit: 2,
+            window: Duration::from_secs(3600),
+        };
 
         assert_not_limited(limiter.check_and_increment(&[check_key_a.clone()]));
         assert_not_limited(limiter.check_and_increment(&[check_key_a.clone()]));
@@ -133,9 +159,21 @@ mod tests {
         let key_a = RateLimitKey::new("key_a");
         let key_b = RateLimitKey::new("key_b");
 
-        let check_shared = RateLimitCheck { key: shared.clone(), limit: 2 };
-        let check_key_a = RateLimitCheck { key: key_a.clone(), limit: 2 };
-        let check_key_b = RateLimitCheck { key: key_b.clone(), limit: 2 };
+        let check_shared = RateLimitCheck {
+            key: shared.clone(),
+            limit: 2,
+            window: Duration::from_secs(3600),
+        };
+        let check_key_a = RateLimitCheck {
+            key: key_a.clone(),
+            limit: 2,
+            window: Duration::from_secs(3600),
+        };
+        let check_key_b = RateLimitCheck {
+            key: key_b.clone(),
+            limit: 2,
+            window: Duration::from_secs(3600),
+        };
 
         // these two check_and_increment calls succeed, but they increment the
         // shared key's counter to the limit
@@ -179,8 +217,16 @@ mod tests {
         let limited = RateLimitKey::new("limited");
         let missing = RateLimitKey::new("missing");
 
-        let check_limited = RateLimitCheck { key: limited.clone(), limit: 2 };
-        let check_missing = RateLimitCheck { key: missing.clone(), limit: 2 };
+        let check_limited = RateLimitCheck {
+            key: limited.clone(),
+            limit: 2,
+            window: Duration::from_secs(3600),
+        };
+        let check_missing = RateLimitCheck {
+            key: missing.clone(),
+            limit: 2,
+            window: Duration::from_secs(3600),
+        };
 
         // make two checks to reach the limit for "limited" key
         assert_not_limited(
@@ -218,8 +264,16 @@ mod tests {
         let key_a = RateLimitKey::new("key_a");
         let key_b = RateLimitKey::new("key_b");
 
-        let check_key_a = RateLimitCheck { key: key_a.clone(), limit: 2 };
-        let check_key_b = RateLimitCheck { key: key_b.clone(), limit: 2 };
+        let check_key_a = RateLimitCheck {
+            key: key_a.clone(),
+            limit: 2,
+            window: Duration::from_secs(3600),
+        };
+        let check_key_b = RateLimitCheck {
+            key: key_b.clone(),
+            limit: 2,
+            window: Duration::from_secs(3600),
+        };
 
         // confirm that there are no counters for the keys
         assert_eq!(limiter.count_for_key(&key_a), None);

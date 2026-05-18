@@ -4,6 +4,8 @@
 
 //! Handler functions (entrypoints) for external HTTP APIs
 
+use std::time::Duration;
+
 use super::console_api;
 use crate::app::SetTargetReleaseIntent;
 use crate::app::external_endpoints::authority_for_request;
@@ -136,12 +138,28 @@ pub(crate) fn external_api() -> NexusApiDescription {
 fn checks_for_endpoint(endpoint: &str) -> Vec<RateLimitCheck> {
     match endpoint {
         "current_user_view" => vec![
-            RateLimitCheck::new(RateLimitKey::new("current_user_view"), 2),
-            RateLimitCheck::new(RateLimitKey::new("global"), 2),
+            RateLimitCheck::new(
+                RateLimitKey::new("current_user_view"),
+                2,
+                Duration::from_secs(3600),
+            ),
+            RateLimitCheck::new(
+                RateLimitKey::new("global"),
+                2,
+                Duration::from_secs(3600),
+            ),
         ],
         "user_builtin_list" => vec![
-            RateLimitCheck::new(RateLimitKey::new("user_builtin_list"), 2),
-            RateLimitCheck::new(RateLimitKey::new("global"), 2),
+            RateLimitCheck::new(
+                RateLimitKey::new("user_builtin_list"),
+                2,
+                Duration::from_secs(3600),
+            ),
+            RateLimitCheck::new(
+                RateLimitKey::new("global"),
+                2,
+                Duration::from_secs(3600),
+            ),
         ],
         _ => vec![],
     }

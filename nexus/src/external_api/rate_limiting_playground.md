@@ -82,3 +82,4 @@ Here's what I want to try:
 9. Making some improvements to the limiter itself so that it's more like a real
    limiter.
     - Add reset and reset_key methods to, well, remove the state for a key.
+    - Add the fixed-window bits: window start time and duration.
