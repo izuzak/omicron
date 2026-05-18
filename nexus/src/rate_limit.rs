@@ -77,6 +77,16 @@ impl RateLimiter {
     pub fn count_for_key(&self, key: &RateLimitKey) -> Option<usize> {
         self.states.lock().unwrap().get(key).map(|state| state.count)
     }
+
+    #[cfg(test)]
+    pub fn reset(&self) {
+        self.states.lock().unwrap().clear();
+    }
+
+    #[cfg(test)]
+    pub fn reset_key(&self, key: &RateLimitKey) {
+        self.states.lock().unwrap().remove(key);
+    }
 }
 
 pub(crate) fn rate_limit_error() -> HttpError {
@@ -199,6 +209,58 @@ mod tests {
         // exist for "missing"
         assert_eq!(limiter.count_for_key(&limited), Some(2));
         assert_eq!(limiter.count_for_key(&missing), None);
+    }
+
+    #[test]
+    fn rate_limiter_reset_removes_keys() {
+        let limiter = RateLimiter::new();
+
+        let key_a = RateLimitKey::new("key_a");
+        let key_b = RateLimitKey::new("key_b");
+
+        let check_key_a = RateLimitCheck { key: key_a.clone(), limit: 2 };
+        let check_key_b = RateLimitCheck { key: key_b.clone(), limit: 2 };
+
+        // confirm that there are no counters for the keys
+        assert_eq!(limiter.count_for_key(&key_a), None);
+        assert_eq!(limiter.count_for_key(&key_b), None);
+
+        // trigger checks so that the counters are created
+        assert_not_limited(limiter.check_and_increment(&[check_key_a.clone()]));
+        assert_not_limited(limiter.check_and_increment(&[check_key_b.clone()]));
+
+        // confirm that counters now exist
+        assert_eq!(limiter.count_for_key(&key_a), Some(1));
+        assert_eq!(limiter.count_for_key(&key_b), Some(1));
+
+        // call reset to remove keys
+        limiter.reset();
+
+        // confirm that there are no counters for the keys
+        assert_eq!(limiter.count_for_key(&key_a), None);
+        assert_eq!(limiter.count_for_key(&key_b), None);
+
+        // trigger checks so that the counters are created again
+        assert_not_limited(limiter.check_and_increment(&[check_key_a.clone()]));
+        assert_not_limited(limiter.check_and_increment(&[check_key_b.clone()]));
+
+        // confirm that counters exist again
+        assert_eq!(limiter.count_for_key(&key_a), Some(1));
+        assert_eq!(limiter.count_for_key(&key_b), Some(1));
+
+        // call reset_key to delete one counter
+        limiter.reset_key(&key_a);
+
+        // confirm that counter for key_a was deleted and still exist for key_b
+        assert_eq!(limiter.count_for_key(&key_a), None);
+        assert_eq!(limiter.count_for_key(&key_b), Some(1));
+
+        // call reset_key to delete other counter
+        limiter.reset_key(&key_b);
+
+        // confirm that counter for key_b was deleted as well
+        assert_eq!(limiter.count_for_key(&key_a), None);
+        assert_eq!(limiter.count_for_key(&key_b), None);
     }
 
     fn assert_not_limited(rate_limit_result: RateLimitResult) {
