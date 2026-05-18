@@ -71,3 +71,4 @@ Here's what I want to try:
     - Also add a way to get the counter value for a unit test for this
 7. Return a RateLimitDecision enum instead of a boolean to allow determining for which key the limit was reached.
     - Might turn this into a Result?
+    - yeah, converted to a Result

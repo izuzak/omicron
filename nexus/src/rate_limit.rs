@@ -18,15 +18,11 @@ pub struct RateLimitState {
     count: usize,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) enum RateLimitDecision {
-    Allowed,
-    Limited { key: RateLimitKey },
-}
-
 pub(crate) struct RateLimiter {
     states: Mutex<HashMap<RateLimitKey, RateLimitState>>,
 }
+
+pub(crate) type RateLimitResult = Result<(), RateLimitKey>;
 
 impl RateLimiter {
     pub fn new() -> Self {
@@ -39,13 +35,13 @@ impl RateLimiter {
     pub fn check_and_increment(
         &self,
         keys: &[RateLimitKey],
-    ) -> RateLimitDecision {
+    ) -> RateLimitResult {
         let mut states = self.states.lock().unwrap();
 
         for key in keys {
             if let Some(state) = states.get(key) {
                 if state.count >= state.limit {
-                    return RateLimitDecision::Limited { key: key.clone() };
+                    return Err(key.clone());
                 }
             }
         }
@@ -59,7 +55,7 @@ impl RateLimiter {
             }
         }
 
-        RateLimitDecision::Allowed
+        Ok(())
     }
 
     #[cfg(test)]
@@ -129,7 +125,10 @@ mod tests {
         // calls should still succeed and the third one should fail
         assert_not_limited(limiter.check_and_increment(&[key_b.clone()]));
         assert_not_limited(limiter.check_and_increment(&[key_b.clone()]));
-        assert_limited(limiter.check_and_increment(&[key_b.clone()]), key_b.clone());
+        assert_limited(
+            limiter.check_and_increment(&[key_b.clone()]),
+            key_b.clone(),
+        );
     }
 
     #[test]
@@ -161,16 +160,16 @@ mod tests {
         assert_eq!(limiter.count_for_key(&missing), None);
     }
 
-    fn assert_not_limited(decision: RateLimitDecision) {
-        assert_eq!(decision, RateLimitDecision::Allowed);
+    fn assert_not_limited(rate_limit_result: RateLimitResult) {
+        assert!(rate_limit_result.is_ok());
     }
 
-    fn assert_limited(decision: RateLimitDecision, expected_key: RateLimitKey) {
-        match decision {
-            RateLimitDecision::Limited { key } => assert_eq!(key, expected_key),
-            RateLimitDecision::Allowed => {
-                panic!("expected request to be limited by {expected_key:?}");
-            }
-        }
+    fn assert_limited(
+        rate_limit_result: RateLimitResult,
+        expected_key: RateLimitKey,
+    ) {
+        let key = rate_limit_result
+            .expect_err("expected request to be limited by key");
+        assert_eq!(key, expected_key);
     }
 }

@@ -9,7 +9,7 @@ use crate::app::SetTargetReleaseIntent;
 use crate::app::external_endpoints::authority_for_request;
 use crate::app::support_bundles::SupportBundleQueryType;
 use crate::context::{ApiContext, audit_and_time};
-use crate::rate_limit::{RateLimitDecision, RateLimitKey, rate_limit_error};
+use crate::rate_limit::{RateLimitKey, rate_limit_error};
 use dropshot::Body;
 use dropshot::EmptyScanParams;
 use dropshot::Header;
@@ -7540,12 +7540,11 @@ impl NexusExternalApi for NexusExternalApiImpl {
             RateLimitKey::new("user_builtin_list".to_string()),
             RateLimitKey::new("global".to_string()),
         ];
-        match apictx.context.rate_limiter.check_and_increment(&keys) {
-            RateLimitDecision::Allowed => {}
-            RateLimitDecision::Limited { .. } => {
-                return Err(rate_limit_error());
-            }
-        }
+        apictx
+            .context
+            .rate_limiter
+            .check_and_increment(&keys)
+            .map_err(|_| rate_limit_error())?;
 
         let nexus = &apictx.context.nexus;
         let query = query_params.into_inner();
@@ -7607,12 +7606,11 @@ impl NexusExternalApi for NexusExternalApiImpl {
             RateLimitKey::new("current_user_view".to_string()),
             RateLimitKey::new("global".to_string()),
         ];
-        match apictx.context.rate_limiter.check_and_increment(&keys) {
-            RateLimitDecision::Allowed => {}
-            RateLimitDecision::Limited { .. } => {
-                return Err(rate_limit_error());
-            }
-        }
+        apictx
+            .context
+            .rate_limiter
+            .check_and_increment(&keys)
+            .map_err(|_| rate_limit_error())?;
 
         let nexus = &apictx.context.nexus;
         let handler = async {
