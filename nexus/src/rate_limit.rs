@@ -51,14 +51,21 @@ impl RateLimiter {
         Self { states: Mutex::new(HashMap::new()) }
     }
 
-    // Checks limits for all passed keys:
-    // - if the check fails for any key, return Err without incrementing anything
-    // - otherwise, increment counters for all passed keys and return Ok
     pub fn check_and_increment(
         &self,
         checks: &[RateLimitCheck],
     ) -> RateLimitResult {
-        let now = Instant::now();
+        self.check_and_increment_at(checks, Instant::now())
+    }
+
+    // Checks limits for all passed keys:
+    // - if the check fails for any key, return Err without incrementing anything
+    // - otherwise, increment counters for all passed keys and return Ok
+    fn check_and_increment_at(
+        &self,
+        checks: &[RateLimitCheck],
+        now: Instant,
+    ) -> RateLimitResult {
         let mut states = self.states.lock().unwrap();
 
         for check in checks {
@@ -315,6 +322,40 @@ mod tests {
         // confirm that counter for key_b was deleted as well
         assert_eq!(limiter.count_for_key(&key_a), None);
         assert_eq!(limiter.count_for_key(&key_b), None);
+    }
+
+    #[test]
+    fn rate_limiter_resets_counter_after_window_expires() {
+        let limiter = RateLimiter::new();
+        let key = RateLimitKey::new("some-key");
+        let window = Duration::from_secs(60);
+        let check = RateLimitCheck::new(key.clone(), 1, window);
+        let now = Instant::now();
+
+        // make a check to reach the limit
+        assert_not_limited(
+            limiter.check_and_increment_at(&[check.clone()], now),
+        );
+
+        // verify that the following check within the same window is limited
+        assert_limited(
+            limiter.check_and_increment_at(&[check.clone()], now),
+            key.clone(),
+        );
+
+        // verify that a check is limited if made just before window expires
+        assert_limited(
+            limiter.check_and_increment_at(
+                &[check.clone()],
+                now + window - Duration::from_nanos(1),
+            ),
+            key.clone(),
+        );
+
+        // verify that the following check after the window expires is allowed
+        assert_not_limited(
+            limiter.check_and_increment_at(&[check.clone()], now + window),
+        );
     }
 
     fn assert_not_limited(rate_limit_result: RateLimitResult) {
