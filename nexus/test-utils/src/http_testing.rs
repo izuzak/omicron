@@ -96,6 +96,7 @@ impl<'a> RequestBuilder<'a> {
                 http::header::CONTENT_TYPE,
                 http::header::DATE,
                 http::header::LOCATION,
+                http::header::RETRY_AFTER,
                 http::header::SET_COOKIE,
                 http::header::HeaderName::from_static("x-request-id"),
             ]),

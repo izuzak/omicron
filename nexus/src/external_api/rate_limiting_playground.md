@@ -96,3 +96,5 @@ Here's what I want to try:
     - Add reset and reset_key methods to, well, remove the state for a key.
     - Add the fixed-window bits: window start time and duration.
     - Make it testable via a helper which allows passing in time directly.
+    - Return more information when limited so that we can include a retry-after
+      header.

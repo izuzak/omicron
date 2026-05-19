@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
-#[derive(Clone, Debug, Eq, PartialEq, Hash)]
+#[derive(Clone, Debug, Eq, PartialEq, Hash, PartialOrd, Ord)]
 pub(crate) struct RateLimitKey(String);
 
 impl RateLimitKey {
@@ -17,8 +17,8 @@ impl RateLimitKey {
     }
 }
 
-// State for a single fixed-windonw rate limiter:
-// - the count of observer events
+// State for a single fixed-window rate limiter:
+// - the count of observed events
 // - the start of the most recent window
 #[derive(Debug)]
 pub struct RateLimitState {
@@ -47,7 +47,21 @@ impl RateLimitCheck {
     }
 }
 
-// A countainter for all rate limit counter. Currently the whole container is
+// What we return in case a limit has been reached
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct RateLimitExceeded {
+    pub exceeded: Vec<RateLimitExceededKey>, // exceeded keys info
+    pub retry_after: Duration, // maximum retry_after from all exceeded keys
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct RateLimitExceededKey {
+    pub key: RateLimitKey,
+    pub limit: usize,
+    pub retry_after: Duration,
+}
+
+// A container for all rate limit counter. Currently the whole container is
 // wrapped in a mutex even though rate limit checks target only specific keys.
 // This is good enough for now and simpler than juggling locks for individual
 // keys.
@@ -55,7 +69,7 @@ pub(crate) struct RateLimiter {
     states: Mutex<HashMap<RateLimitKey, RateLimitState>>,
 }
 
-pub(crate) type RateLimitResult = Result<(), RateLimitKey>;
+pub(crate) type RateLimitResult = Result<(), RateLimitExceeded>;
 
 impl RateLimiter {
     pub fn new() -> Self {
@@ -85,16 +99,35 @@ impl RateLimiter {
         now: Instant,
     ) -> RateLimitResult {
         let mut states = self.states.lock().unwrap();
+        let mut exceeded: Vec<RateLimitExceededKey> = Vec::new();
 
         for check in checks {
             if let Some(state) = states.get(&check.key) {
+                let elapsed = now.duration_since(state.window_started_at);
+
                 if (state.count >= check.limit)
                     && (now.duration_since(state.window_started_at)
                         < check.window)
                 {
-                    return Err((&check.key).clone());
+                    let retry_after = check.window - elapsed;
+
+                    exceeded.push(RateLimitExceededKey {
+                        key: check.key.clone(),
+                        limit: check.limit,
+                        retry_after,
+                    });
                 }
             }
+        }
+
+        // check the list of exceeded limits and find the one for which the
+        // window will expire last -- this is the duration the consumer needs
+        // to really wait for before retrying the same exact request
+        if !exceeded.is_empty() {
+            let retry_after =
+                exceeded.iter().map(|e| e.retry_after).max().unwrap(); // we know that there are some items, so we can unwrap
+
+            return Err(RateLimitExceeded { exceeded, retry_after });
         }
 
         for check in checks {
@@ -132,11 +165,16 @@ impl RateLimiter {
     }
 }
 
-pub(crate) fn rate_limit_error() -> HttpError {
+pub(crate) fn rate_limit_error(exceeded: RateLimitExceeded) -> HttpError {
     HttpError::for_client_error_with_status(
         Some(String::from("RateLimitExceeded")),
         ClientErrorStatusCode::TOO_MANY_REQUESTS,
     )
+    .with_header(
+        http::header::RETRY_AFTER,
+        exceeded.retry_after.as_secs().max(1).to_string(),
+    )
+    .expect("Retry-After header value is valid")
 }
 
 #[cfg(test)]
@@ -165,14 +203,16 @@ mod tests {
         assert_not_limited(limiter.check_and_increment(&[check_key_a.clone()]));
         assert_limited(
             limiter.check_and_increment(&[check_key_a.clone()]),
-            key_a.clone(),
+            &[key_a.clone()],
+            None,
         );
 
         assert_not_limited(limiter.check_and_increment(&[check_key_b.clone()]));
         assert_not_limited(limiter.check_and_increment(&[check_key_b.clone()]));
         assert_limited(
             limiter.check_and_increment(&[check_key_b.clone()]),
-            key_b.clone(),
+            &[key_b.clone()],
+            None,
         );
     }
 
@@ -222,7 +262,8 @@ mod tests {
                 check_key_b.clone(),
                 check_shared.clone(),
             ]),
-            shared.clone(),
+            &[shared.clone()],
+            None,
         );
 
         // because key_b's counter wasn't incremented, two check_and_increment
@@ -231,7 +272,8 @@ mod tests {
         assert_not_limited(limiter.check_and_increment(&[check_key_b.clone()]));
         assert_limited(
             limiter.check_and_increment(&[check_key_b.clone()]),
-            key_b.clone(),
+            &[key_b.clone()],
+            None,
         );
     }
 
@@ -273,10 +315,11 @@ mod tests {
                 check_missing.clone(),
                 check_limited.clone(),
             ]),
-            limited.clone(),
+            &[limited.clone()],
+            None,
         );
 
-        // verify that the counter stil exists for "limited" and still doesn't
+        // verify that the counter still exists for "limited" and still doesn't
         // exist for "missing"
         assert_eq!(limiter.count_for_key(&limited), Some(2));
         assert_eq!(limiter.count_for_key(&missing), None);
@@ -358,7 +401,8 @@ mod tests {
         // verify that the following check within the same window is limited
         assert_limited(
             limiter.check_and_increment_at(&[check.clone()], now),
-            key.clone(),
+            &[key.clone()],
+            None,
         );
 
         // verify that a check is limited if made just before window expires
@@ -367,12 +411,56 @@ mod tests {
                 &[check.clone()],
                 now + window - Duration::from_nanos(1),
             ),
-            key.clone(),
+            &[key.clone()],
+            None,
         );
 
         // verify that the following check after the window expires is allowed
         assert_not_limited(
             limiter.check_and_increment_at(&[check.clone()], now + window),
+        );
+    }
+
+    #[test]
+    fn rate_limiter_returns_rate_limit_exceeded_with_max_retry_after() {
+        let limiter = RateLimiter::new();
+        let key_a = RateLimitKey::new("key_a");
+        let key_b = RateLimitKey::new("key_b");
+        let key_c = RateLimitKey::new("key_c");
+        let now = Instant::now();
+
+        let check_key_a = RateLimitCheck {
+            key: key_a.clone(),
+            limit: 2,
+            window: Duration::from_secs(60),
+        };
+        let check_key_b = RateLimitCheck {
+            key: key_b.clone(),
+            limit: 5,
+            window: Duration::from_secs(100),
+        };
+        let check_key_c = RateLimitCheck {
+            key: key_c.clone(),
+            limit: 2,
+            window: Duration::from_secs(120),
+        };
+
+        let checks =
+            &[check_key_a.clone(), check_key_b.clone(), check_key_c.clone()];
+
+        // make two requests to hit the limits for key_a and key_c
+        assert_not_limited(limiter.check_and_increment_at(checks, now));
+        assert_not_limited(
+            limiter
+                .check_and_increment_at(checks, now + Duration::from_secs(1)),
+        );
+
+        // verify that limits are hit and which ones and that the max time is returned
+        assert_limited(
+            limiter
+                .check_and_increment_at(checks, now + Duration::from_secs(2)),
+            &[key_a.clone(), key_c.clone()],
+            Some(Duration::from_secs(118)),
         );
     }
 
@@ -382,10 +470,34 @@ mod tests {
 
     fn assert_limited(
         rate_limit_result: RateLimitResult,
-        expected_key: RateLimitKey,
+        expected_keys: &[RateLimitKey],
+        expected_retry_after: Option<Duration>,
     ) {
-        let key = rate_limit_result
-            .expect_err("expected request to be limited by key");
-        assert_eq!(key, expected_key);
+        let exceeded_info =
+            rate_limit_result.expect_err("expected request to be limited");
+
+        let exceeded_keys = exceeded_info
+            .exceeded
+            .iter()
+            .map(|exceeded_key_info| exceeded_key_info.key.clone())
+            .collect::<Vec<_>>();
+
+        assert_same_items(&exceeded_keys, expected_keys);
+        if let Some(expected_retry_after) = expected_retry_after {
+            assert_eq!(exceeded_info.retry_after, expected_retry_after);
+        }
+    }
+
+    fn assert_same_items<T>(actual: &[T], expected: &[T])
+    where
+        T: Clone + Ord + std::fmt::Debug,
+    {
+        let mut actual = actual.to_vec();
+        let mut expected = expected.to_vec();
+
+        actual.sort();
+        expected.sort();
+
+        assert_eq!(actual, expected);
     }
 }

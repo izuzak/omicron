@@ -23,9 +23,11 @@ async fn test_rate_limiting(cptestctx: &ControlPlaneTestContext) {
 
     let response = request(client, "/v1/me").await;
     assert_eq!(response.status, StatusCode::TOO_MANY_REQUESTS);
+    assert_has_retry_after_header(&response);
 
     let response = request(client, "/v1/system/users-builtin").await;
     assert_eq!(response.status, StatusCode::TOO_MANY_REQUESTS);
+    assert_has_retry_after_header(&response);
 }
 
 async fn request(
@@ -37,4 +39,19 @@ async fn request(
         .execute()
         .await
         .expect("request failed")
+}
+
+fn assert_has_retry_after_header(response: &TestResponse) {
+    let retry_after = response
+        .headers
+        .get(http::header::RETRY_AFTER)
+        .expect("expected Retry-After header");
+    let retry_after = retry_after
+        .to_str()
+        .expect("Retry-After header should be valid ascii string");
+    let retry_after = retry_after
+        .parse::<u64>()
+        .expect("Retry-After header should be an unsigned integer");
+
+    assert!(retry_after > 0, "Retry-After header should be positive");
 }

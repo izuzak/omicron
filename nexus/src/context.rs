@@ -116,7 +116,7 @@ pub struct ServerContext {
     pub(crate) console_config: ConsoleConfig,
     /// config supporting `omdb` system introspection
     pub(crate) omdb_config: OmdbConfig,
-    /// counter for rate limiting
+    /// rate limiter
     pub(crate) rate_limiter: RateLimiter,
 }
 

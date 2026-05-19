@@ -175,7 +175,7 @@ fn check_rate_limits(
 ) -> Result<(), HttpError> {
     rate_limiter
         .check_and_increment(&checks)
-        .map_err(|_| rate_limit_error())?;
+        .map_err(|exceeded| rate_limit_error(exceeded))?;
 
     Ok(())
 }
