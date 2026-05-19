@@ -135,6 +135,9 @@ pub(crate) fn external_api() -> NexusApiDescription {
         .expect("registered entrypoints")
 }
 
+// Helper for returning rate limiting "policies" for API endpoints. Currently
+// hardcoded values, but this could be fetched from the database in the future,
+// along with exemptions/overrides.
 fn checks_for_endpoint(endpoint: &str) -> Vec<RateLimitCheck> {
     match endpoint {
         "current_user_view" => vec![
@@ -165,6 +168,7 @@ fn checks_for_endpoint(endpoint: &str) -> Vec<RateLimitCheck> {
     }
 }
 
+// Helper to check limits and convert to a HttpError
 fn check_rate_limits(
     rate_limiter: &RateLimiter,
     checks: &[RateLimitCheck],

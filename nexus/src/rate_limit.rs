@@ -17,12 +17,19 @@ impl RateLimitKey {
     }
 }
 
+// State for a single fixed-windonw rate limiter:
+// - the count of observer events
+// - the start of the most recent window
 #[derive(Debug)]
 pub struct RateLimitState {
     count: usize,
     window_started_at: Instant,
 }
 
+// A check against a single fixed-window rate-limiter:
+// - which key needs to be checked
+// - what the "policy" says is the limit for that key
+// - what the "policy" says is the window duration for that key
 #[derive(Clone, Debug)]
 pub struct RateLimitCheck {
     key: RateLimitKey,
@@ -40,6 +47,10 @@ impl RateLimitCheck {
     }
 }
 
+// A countainter for all rate limit counter. Currently the whole container is
+// wrapped in a mutex even though rate limit checks target only specific keys.
+// This is good enough for now and simpler than juggling locks for individual
+// keys.
 pub(crate) struct RateLimiter {
     states: Mutex<HashMap<RateLimitKey, RateLimitState>>,
 }
@@ -51,6 +62,8 @@ impl RateLimiter {
         Self { states: Mutex::new(HashMap::new()) }
     }
 
+    // Public method for checking limits for a list of keys. Calls the internal
+    // method with the time to set to the current instant
     pub fn check_and_increment(
         &self,
         checks: &[RateLimitCheck],
@@ -58,9 +71,14 @@ impl RateLimiter {
         self.check_and_increment_at(checks, Instant::now())
     }
 
-    // Checks limits for all passed keys:
-    // - if the check fails for any key, return Err without incrementing anything
-    // - otherwise, increment counters for all passed keys and return Ok
+    // Internal method for checking limits for a list of keys:
+    // - accepts a time instant for testing
+    // - if the check fails for any key that has a non-expired window:
+    //     - return Err without incrementing anything
+    // - otherwise:
+    //     - update the start of expired windows
+    //     - increment counters for all passed keys
+    //     - return Ok
     fn check_and_increment_at(
         &self,
         checks: &[RateLimitCheck],
