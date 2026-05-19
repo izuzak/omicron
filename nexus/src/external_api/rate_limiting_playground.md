@@ -31,6 +31,18 @@ Things that should/could exist:
 - debuggability/supportability (e.g. which users are limited or were limited,
   which overrides exist)
 
+Some relevant standards docs/RFCs:
+- RFC 6585 - Additional HTTP Status Codes
+    - documents the 429 status code
+    - https://datatracker.ietf.org/doc/html/rfc6585
+- RFC 9110 - HTTP Semantics
+    - documents the Retry-After response header
+    - https://datatracker.ietf.org/doc/html/rfc9110
+- RateLimit header fields for HTTP 
+    - documents RateLimit header fields. Expired status.
+    - https://datatracker.ietf.org/doc/draft-ietf-httpapi-ratelimit-headers/
+    - https://github.com/ietf-wg-httpapi/ratelimit-headers
+
 # Nexus APIs and kinda a log of progress
 
 Here's what I want to try:
