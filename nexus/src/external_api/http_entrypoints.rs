@@ -10,10 +10,8 @@ use super::console_api;
 use crate::app::SetTargetReleaseIntent;
 use crate::app::external_endpoints::authority_for_request;
 use crate::app::support_bundles::SupportBundleQueryType;
-use crate::context::{ApiContext, audit_and_time};
-use crate::rate_limit::{
-    RateLimitCheck, RateLimitKey, RateLimiter, rate_limit_error,
-};
+use crate::context::{ApiContext, RateLimitManager, audit_and_time};
+use crate::rate_limit::{RateLimitCheck, RateLimitKey, rate_limit_error};
 use dropshot::Body;
 use dropshot::EmptyScanParams;
 use dropshot::Header;
@@ -170,10 +168,10 @@ fn checks_for_endpoint(endpoint: &str) -> Vec<RateLimitCheck> {
 
 // Helper to check limits and convert to a HttpError
 fn check_rate_limits(
-    rate_limiter: &RateLimiter,
+    rate_limit_manager: &RateLimitManager,
     checks: &[RateLimitCheck],
 ) -> Result<(), HttpError> {
-    rate_limiter
+    rate_limit_manager
         .check_and_increment(&checks)
         .map_err(|exceeded| rate_limit_error(exceeded))?;
 

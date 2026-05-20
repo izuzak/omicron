@@ -76,6 +76,9 @@ subnet.net = "fd00:1122:3344:0100::/56"
 type = "from_url"
 url = "postgresql://root@127.0.0.1:0/omicron?sslmode=disable"
 
+[deployment.rate_limiting]
+enabled = false
+
 # Dendrite (dataplane daemon) API configuration
 [dendrite.switch0]
 address = "[::1]:12224"

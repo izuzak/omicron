@@ -188,6 +188,9 @@ pub struct DeploymentConfig {
     /// Configuration for HTTP clients to external services.
     #[serde(default)]
     pub external_http_clients: ExternalHttpClientConfig,
+    /// Configuration for rate limiter.
+    #[serde(default)]
+    pub rate_limiting: RateLimitingConfig,
 }
 
 fn default_techport_external_server_port() -> u16 {
@@ -1131,6 +1134,22 @@ impl WebhookDeliveratorConfig {
     }
 }
 
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize, JsonSchema)]
+pub struct RateLimitingConfig {
+    #[serde(default = "default_rate_limiting_enabled")]
+    pub enabled: bool,
+}
+
+fn default_rate_limiting_enabled() -> bool {
+    true
+}
+
+impl Default for RateLimitingConfig {
+    fn default() -> Self {
+        Self { enabled: default_rate_limiting_enabled() }
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -1403,6 +1422,7 @@ mod test {
                     external_http_clients: ExternalHttpClientConfig {
                         interface: Some("opte0".to_string()),
                     },
+                    rate_limiting: RateLimitingConfig::default(),
                 },
                 pkg: PackageConfig {
                     console: ConsoleConfig {

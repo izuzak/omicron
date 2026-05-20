@@ -12,7 +12,9 @@ type ControlPlaneTestContext =
     nexus_test_utils::ControlPlaneTestContext<omicron_nexus::Server>;
 
 #[nexus_test]
-async fn test_rate_limiting(cptestctx: &ControlPlaneTestContext) {
+async fn test_rate_limiting_enabled(cptestctx: &ControlPlaneTestContext) {
+    cptestctx.server.server_context().set_rate_limiting_enabled(true);
+
     let client = &cptestctx.external_client;
 
     let response = request(client, "/v1/me").await;
@@ -22,12 +24,31 @@ async fn test_rate_limiting(cptestctx: &ControlPlaneTestContext) {
     assert_eq!(response.status, StatusCode::OK);
 
     let response = request(client, "/v1/me").await;
-    assert_eq!(response.status, StatusCode::TOO_MANY_REQUESTS);
-    assert_has_retry_after_header(&response);
+    assert_rate_limited(&response);
 
     let response = request(client, "/v1/system/users-builtin").await;
-    assert_eq!(response.status, StatusCode::TOO_MANY_REQUESTS);
-    assert_has_retry_after_header(&response);
+    assert_rate_limited(&response);
+}
+
+#[nexus_test]
+async fn test_rate_limiting_disabled_by_default(
+    cptestctx: &ControlPlaneTestContext,
+) {
+    let client = &cptestctx.external_client;
+
+    let response = request(client, "/v1/me").await;
+    assert_eq!(response.status, StatusCode::OK);
+
+    let response = request(client, "/v1/me").await;
+    assert_eq!(response.status, StatusCode::OK);
+
+    // this would fail if rate limiting were enabled
+    let response = request(client, "/v1/me").await;
+    assert_eq!(response.status, StatusCode::OK);
+
+    // this would fail if rate limiting were enabled
+    let response = request(client, "/v1/system/users-builtin").await;
+    assert_eq!(response.status, StatusCode::OK);
 }
 
 async fn request(
@@ -54,4 +75,9 @@ fn assert_has_retry_after_header(response: &TestResponse) {
         .expect("Retry-After header should be an unsigned integer");
 
     assert!(retry_after > 0, "Retry-After header should be positive");
+}
+
+fn assert_rate_limited(response: &TestResponse) {
+    assert_eq!(response.status, StatusCode::TOO_MANY_REQUESTS);
+    assert_has_retry_after_header(&response);
 }

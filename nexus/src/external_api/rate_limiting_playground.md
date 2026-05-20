@@ -98,3 +98,11 @@ Here's what I want to try:
     - Make it testable via a helper which allows passing in time directly.
     - Return more information when limited so that we can include a retry-after
       header.
+10. Make it possible to enable/disable the limiter via config
+    - Enabled by default, disabled in tests
+    - When disabled, rate limiting is skipped when processing requests
+    - And can be enabled/disabled manually, e.g. we enable it in rate limiting
+      integration tests
+    - Might turn the enabled/disabled bool into a mode in the future, so that we
+      can also have a dry-run mode which goes through full rate-limiting logic
+      to generate logs/metrics, but does not deny returns with 429

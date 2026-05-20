@@ -3,7 +3,7 @@
 
 //! Shared state used by API request handlers
 use super::Nexus;
-use crate::rate_limit::RateLimiter;
+use crate::rate_limit::{RateLimitCheck, RateLimitExceeded, RateLimiter};
 use crate::saga_interface::SagaContext;
 use async_trait::async_trait;
 use authn::external::HttpAuthnScheme;
@@ -32,6 +32,8 @@ use slog_error_chain::InlineErrorChain;
 use std::env;
 use std::future::Future;
 use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
+use std::sync::atomic::Ordering;
 use uuid::Uuid;
 
 use dropshot::{HttpError, HttpResponse};
@@ -117,7 +119,32 @@ pub struct ServerContext {
     /// config supporting `omdb` system introspection
     pub(crate) omdb_config: OmdbConfig,
     /// rate limiter
-    pub(crate) rate_limiter: RateLimiter,
+    pub(crate) rate_limiter: RateLimitManager,
+}
+
+pub(crate) struct RateLimitManager {
+    enabled: AtomicBool,
+    limiter: RateLimiter,
+}
+
+impl RateLimitManager {
+    pub(crate) fn new(enabled: bool) -> Self {
+        Self { enabled: AtomicBool::new(enabled), limiter: RateLimiter::new() }
+    }
+
+    pub(crate) fn check_and_increment(
+        &self,
+        checks: &[RateLimitCheck],
+    ) -> Result<(), RateLimitExceeded> {
+        match self.enabled.load(Ordering::Relaxed) {
+            false => Ok(()),
+            true => self.limiter.check_and_increment(checks),
+        }
+    }
+
+    pub(crate) fn set_enabled(&self, enabled: bool) {
+        self.enabled.store(enabled, Ordering::Relaxed);
+    }
 }
 
 pub(crate) struct ConsoleConfig {
@@ -337,8 +364,14 @@ impl ServerContext {
                 static_dir,
             },
             omdb_config: config.pkg.omdb.clone(),
-            rate_limiter: RateLimiter::new(),
+            rate_limiter: RateLimitManager::new(
+                config.deployment.rate_limiting.enabled,
+            ),
         }))
+    }
+
+    pub fn set_rate_limiting_enabled(&self, enabled: bool) {
+        self.rate_limiter.set_enabled(enabled);
     }
 }
 
