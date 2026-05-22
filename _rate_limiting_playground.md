@@ -127,3 +127,42 @@ Here's what I want to try:
       loaded from a database or some configuration.
     - and for now, i'm implementing a small subset of matchers and key parts as
       a proof of concept.
+
+Here's a mostly-sequence diagram which show the current flow:
+
+                   ┌──────────────────┐        ┌──────────────────┐                                          
+                   │                  │        │                  │                                          
+                   │ Endpoint handler │        │  Rate limiter    │                                          
+                   │                  │        │                  │                                          
+                   └──────────────────┘        └──────────────────┘                                          
+                            │                          │                                                     
+                            │                          │                                                     
+        Rate limit ────────▶│                          │                                                     
+        policies            │                          │                                                     
+                            │                          │   ┌────────────────────────────────────────────────┐
+         Request   ────────▶│  Determine rate limit    │   │                                                │
+                            │  checks for request      │   │ 1. Match requests to policies using matchers   │
+                            │  based on policies       │   │    (e.g. based on endpoint or request method)  │
+                            │─────────────────────────▶│   │ 2. For matched policies, construct the rate    │
+                            │                          │──▶│    limit key based on the policy key template  │
+                            │  List of rate limit      │   │ 3. Determine the quota for the fixed-window    │
+                            │  checks                  │   │    rate limit algorithm                        │
+                            │◀─────────────────────────│   └────────────────────────────────────────────────┘
+                            │                          │   ┌────────────────────────────────────────────────┐
+                            │                          │   │                                                │
+                            │  Execute checks against  │   │ 1. Check keys' counters to determine if they   │
+                            │  rate limit counters     │   │    are over the limit in the current window    │
+                            │─────────────────────────▶│   │ 2. Return keys for which the limit was hit,    │
+                            │                          │──▶│    the limits, and remaining window durations  │
+                            │                          │   │ 3. Determine the max ramining window duration  │
+                            │ Ok if all checks passed, │   │    for the retry-after header                  │
+                            │ Err if some failed       │   └────────────────────────────────────────────────┘
+                            │◀─────────────────────────│                                                     
+429 response if             │                          │                                                     
+rate limited, with ◀────────│                          │                                                     
+Retry-After header          |
+                            |
+                            .
+                            .
+                      processing request
+                      continues if not limited
