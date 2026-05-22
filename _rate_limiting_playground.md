@@ -130,6 +130,7 @@ Here's what I want to try:
 
 Here's a mostly-sequence diagram which show the current flow:
 
+```
                    ┌──────────────────┐        ┌──────────────────┐                                          
                    │                  │        │                  │                                          
                    │ Endpoint handler │        │  Rate limiter    │                                          
@@ -166,3 +167,4 @@ Retry-After header          |
                             .
                       processing request
                       continues if not limited
+```
