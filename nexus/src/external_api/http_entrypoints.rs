@@ -10,8 +10,11 @@ use super::console_api;
 use crate::app::SetTargetReleaseIntent;
 use crate::app::external_endpoints::authority_for_request;
 use crate::app::support_bundles::SupportBundleQueryType;
-use crate::context::{ApiContext, RateLimitManager, audit_and_time};
-use crate::rate_limit::{RateLimitCheck, RateLimitKey, rate_limit_error};
+use crate::context::{ApiContext, audit_and_time};
+use crate::rate_limit::{
+    MatchPredicate, RateLimitCheck, RateLimitKeyPart, RateLimitPolicy,
+    RateLimitQuota, RateLimitRequestContext, rate_limit_error,
+};
 use dropshot::Body;
 use dropshot::EmptyScanParams;
 use dropshot::Header;
@@ -136,42 +139,63 @@ pub(crate) fn external_api() -> NexusApiDescription {
 // Helper for returning rate limiting "policies" for API endpoints. Currently
 // hardcoded values, but this could be fetched from the database in the future,
 // along with exemptions/overrides.
-fn checks_for_endpoint(endpoint: &str) -> Vec<RateLimitCheck> {
-    match endpoint {
-        "current_user_view" => vec![
-            RateLimitCheck::new(
-                RateLimitKey::new("current_user_view"),
-                2,
-                Duration::from_secs(3600),
-            ),
-            RateLimitCheck::new(
-                RateLimitKey::new("global"),
-                2,
-                Duration::from_secs(3600),
-            ),
-        ],
-        "user_builtin_list" => vec![
-            RateLimitCheck::new(
-                RateLimitKey::new("user_builtin_list"),
-                2,
-                Duration::from_secs(3600),
-            ),
-            RateLimitCheck::new(
-                RateLimitKey::new("global"),
-                2,
-                Duration::from_secs(3600),
-            ),
-        ],
-        _ => vec![],
-    }
+fn rate_limit_policies() -> Vec<RateLimitPolicy> {
+    vec![
+        // policy for GET /v1/me endpoint
+        RateLimitPolicy::new(
+            vec![
+                MatchPredicate::Endpoint { any_of: vec!["current_user_view"] },
+                MatchPredicate::HttpMethod { any_of: vec![http::Method::GET] },
+            ],
+            RateLimitQuota::new(2, Duration::from_secs(3600)),
+            vec![
+                RateLimitKeyPart::Literal("endpoint"),
+                RateLimitKeyPart::HttpMethod,
+                RateLimitKeyPart::Endpoint,
+            ],
+        ),
+        // policy for GET /v1/system/users-builtin endpoint
+        RateLimitPolicy::new(
+            vec![
+                MatchPredicate::Endpoint { any_of: vec!["user_builtin_list"] },
+                MatchPredicate::HttpMethod { any_of: vec![http::Method::GET] },
+            ],
+            RateLimitQuota::new(2, Duration::from_secs(3600)),
+            vec![
+                RateLimitKeyPart::Literal("endpoint"),
+                RateLimitKeyPart::HttpMethod,
+                RateLimitKeyPart::Endpoint,
+            ],
+        ),
+        // global policy across all endpoints and methods
+        RateLimitPolicy::new(
+            vec![MatchPredicate::Global],
+            RateLimitQuota::new(2, Duration::from_secs(3600)),
+            vec![RateLimitKeyPart::Literal("global")],
+        ),
+    ]
 }
 
-// Helper to check limits and convert to a HttpError
+// Helper to fetch policies, determine the checks that apply to a request based
+// on those policies, use those checks to verify limits, and convert to a
+// HttpError in case of hitting any limits.
 fn check_rate_limits(
-    rate_limit_manager: &RateLimitManager,
-    checks: &[RateLimitCheck],
+    rqctx: &RequestContext<ApiContext>,
 ) -> Result<(), HttpError> {
-    rate_limit_manager
+    let rate_limit_rqctx = RateLimitRequestContext::new(
+        rqctx.endpoint.operation_id.as_str(),
+        rqctx.request.method().clone(),
+    );
+
+    let checks = rate_limit_policies()
+        .iter()
+        .filter_map(|policy| policy.check_for(&rate_limit_rqctx))
+        .collect::<Vec<RateLimitCheck>>();
+
+    rqctx
+        .context()
+        .context
+        .rate_limiter
         .check_and_increment(&checks)
         .map_err(|exceeded| rate_limit_error(exceeded))?;
 
@@ -7581,11 +7605,9 @@ impl NexusExternalApi for NexusExternalApiImpl {
         rqctx: RequestContext<ApiContext>,
         query_params: Query<PaginatedByName>,
     ) -> Result<HttpResponseOk<ResultsPage<UserBuiltin>>, HttpError> {
+        check_rate_limits(&rqctx)?;
+
         let apictx = rqctx.context();
-
-        let checks = checks_for_endpoint("user_builtin_list");
-        check_rate_limits(&apictx.context.rate_limiter, &checks)?;
-
         let nexus = &apictx.context.nexus;
         let query = query_params.into_inner();
         let pagparams = data_page_params_for(&rqctx, &query)?
@@ -7640,11 +7662,9 @@ impl NexusExternalApi for NexusExternalApiImpl {
     async fn current_user_view(
         rqctx: RequestContext<ApiContext>,
     ) -> Result<HttpResponseOk<user::CurrentUser>, HttpError> {
+        check_rate_limits(&rqctx)?;
+
         let apictx = rqctx.context();
-
-        let checks = checks_for_endpoint("current_user_view");
-        check_rate_limits(&apictx.context.rate_limiter, &checks)?;
-
         let nexus = &apictx.context.nexus;
         let handler = async {
             let opctx =

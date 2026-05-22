@@ -177,6 +177,124 @@ pub(crate) fn rate_limit_error(exceeded: RateLimitExceeded) -> HttpError {
     .expect("Retry-After header value is valid")
 }
 
+// Matchers are ways a policy expresses which requests it applies to. These
+// matchers look at specific parts of the request, e.g. the endpoint, the
+// method, the authenticated user, etc.
+//
+// For a start, I'm using matchers based on the endpoint, the method, and a
+// global matcher which matches all requests (e.g. for a global rate limit).
+// This list could be expanded to cover more things, like identity, resource
+// groups, silos, etc.
+pub(crate) enum MatchPredicate {
+    Endpoint { any_of: Vec<&'static str> },
+    HttpMethod { any_of: Vec<http::Method> },
+    Global,
+}
+
+// Different types of pieces from which a rate limit key can be constructed
+// from a request. Again, this is just a starting point which defines a
+// string literal piece (not based on the request), the endpoint id, and the
+// http method. More pieces can be added in the future, e.g. identity, resource
+// group, etc.
+pub(crate) enum RateLimitKeyPart {
+    Literal(&'static str),
+    Endpoint,
+    HttpMethod,
+}
+
+// How a rate limit policy defines the quota for a specific rate limit key.
+// In other words, this defines the X requests per Y time window limit.
+pub(crate) struct RateLimitQuota {
+    limit: usize,
+    window: Duration,
+}
+
+impl RateLimitQuota {
+    pub(crate) fn new(limit: usize, window: Duration) -> Self {
+        Self { limit, window }
+    }
+}
+
+// A rate limit policy defines:
+// - which requests it applies to (via matchers)
+// - how to construct the rate limit key for matching requests (via key_parts)
+// - what the quota is for the constructed key (via the quota)
+//
+// The check_for method uses these pieces to determine if the policy applies to
+// a given request context and, if so, returns the corresponding RateLimitCheck
+// that can be used to check against the RateLimiter.
+pub(crate) struct RateLimitPolicy {
+    matchers: Vec<MatchPredicate>,
+    quota: RateLimitQuota,
+    key_parts: Vec<RateLimitKeyPart>,
+}
+
+impl RateLimitPolicy {
+    pub(crate) fn new(
+        matchers: Vec<MatchPredicate>,
+        quota: RateLimitQuota,
+        key_parts: Vec<RateLimitKeyPart>,
+    ) -> Self {
+        Self { matchers, quota, key_parts }
+    }
+
+    pub(crate) fn check_for(
+        &self,
+        ctx: &RateLimitRequestContext,
+    ) -> Option<RateLimitCheck> {
+        for matcher in &self.matchers {
+            match matcher {
+                MatchPredicate::Endpoint { any_of } => {
+                    if !any_of.iter().any(|endpoint| endpoint == &ctx.endpoint)
+                    {
+                        return None;
+                    }
+                }
+                MatchPredicate::HttpMethod { any_of } => {
+                    if !any_of.iter().any(|method| method == &ctx.method) {
+                        return None;
+                    }
+                }
+                MatchPredicate::Global => {}
+            }
+        }
+
+        let key = self
+            .key_parts
+            .iter()
+            .map(|part| match part {
+                RateLimitKeyPart::Literal(value) => value.to_string(),
+                RateLimitKeyPart::Endpoint => ctx.endpoint.clone(),
+                RateLimitKeyPart::HttpMethod => ctx.method.as_str().to_string(),
+            })
+            .collect::<Vec<_>>()
+            .join(":");
+
+        Some(RateLimitCheck::new(
+            RateLimitKey::new(key),
+            self.quota.limit,
+            self.quota.window,
+        ))
+    }
+}
+
+// The parts of the request context which are needed by for the matching and
+// key construction. Again, very reduced for now, and would be expanded in the
+// future to include more things like identity.
+pub(crate) struct RateLimitRequestContext {
+    pub endpoint: String,
+    method: http::Method,
+}
+
+impl RateLimitRequestContext {
+    pub(crate) fn new(
+        endpoint: impl Into<String>,
+        method: http::Method,
+    ) -> Self {
+        Self { endpoint: endpoint.into(), method }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -462,6 +580,80 @@ mod tests {
             &[key_a.clone(), key_c.clone()],
             Some(Duration::from_secs(118)),
         );
+    }
+
+    #[test]
+    fn policy_check_for_matching_endpoint_and_method_returns_check() {
+        let policy = RateLimitPolicy::new(
+            vec![
+                MatchPredicate::Endpoint { any_of: vec!["some_endpoint"] },
+                MatchPredicate::HttpMethod { any_of: vec![http::Method::GET] },
+            ],
+            RateLimitQuota::new(123, Duration::from_secs(60)),
+            vec![
+                RateLimitKeyPart::Literal("endpoint"),
+                RateLimitKeyPart::Endpoint,
+                RateLimitKeyPart::HttpMethod,
+            ],
+        );
+
+        let ctx =
+            RateLimitRequestContext::new("some_endpoint", http::Method::GET);
+
+        let check = policy.check_for(&ctx).expect("policy should match");
+
+        assert_eq!(check.key, RateLimitKey::new("endpoint:some_endpoint:GET"));
+        assert_eq!(check.limit, 123);
+        assert_eq!(check.window, Duration::from_secs(60));
+
+        // mismatch on endpoint
+        let ctx = RateLimitRequestContext::new(
+            "some_other_endpoint",
+            http::Method::GET,
+        );
+
+        assert!(policy.check_for(&ctx).is_none());
+
+        // mismatch on method
+        let ctx =
+            RateLimitRequestContext::new("some_endpoint", http::Method::POST);
+
+        assert!(policy.check_for(&ctx).is_none());
+    }
+
+    #[test]
+    fn policy_check_for_endpoint_any_of_matches_any_listed_endpoint() {
+        let policy = RateLimitPolicy::new(
+            vec![MatchPredicate::Endpoint {
+                any_of: vec!["some_endpoint_1", "some_endpoint_2"],
+            }],
+            RateLimitQuota::new(10, Duration::from_secs(60)),
+            vec![RateLimitKeyPart::Endpoint],
+        );
+
+        let ctx =
+            RateLimitRequestContext::new("some_endpoint_2", http::Method::GET);
+
+        assert!(policy.check_for(&ctx).is_some());
+    }
+
+    #[test]
+    fn policy_check_for_global_matches_any_request() {
+        let policy = RateLimitPolicy::new(
+            vec![MatchPredicate::Global],
+            RateLimitQuota::new(10, Duration::from_secs(60)),
+            vec![RateLimitKeyPart::Literal("global")],
+        );
+
+        let ctx =
+            RateLimitRequestContext::new("some_endpoint_1", http::Method::GET);
+
+        assert!(policy.check_for(&ctx).is_some());
+
+        let ctx =
+            RateLimitRequestContext::new("some_endpoint_2", http::Method::POST);
+
+        assert!(policy.check_for(&ctx).is_some());
     }
 
     fn assert_not_limited(rate_limit_result: RateLimitResult) {

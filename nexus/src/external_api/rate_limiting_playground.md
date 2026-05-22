@@ -106,3 +106,24 @@ Here's what I want to try:
     - Might turn the enabled/disabled bool into a mode in the future, so that we
       can also have a dry-run mode which goes through full rate-limiting logic
       to generate logs/metrics, but does not deny returns with 429
+11. Okaaay, finally some work on rate limiting policies. So, the way I think
+    about this is that there needs to be something that matches requests based
+    on some criteria (e.g. who is making the request, which resource they're
+    targeting), and then something else which says what the quota should be for
+    such requests. So, I'm exploring a simple way of defining a policy: 
+    - a list of matchers which determine whether a request should be subject to
+      a policy
+    - a quota which defines the limit and duration for the fixed-window algorith
+      for requests matching the policy
+    - a list of rate limit key parts which determine how a key is constructed
+      for a request matching a policy. It's not necessary that the pieces used
+      to match a request are the same exact pieces used to construct the key, so
+      it makes sense to have this conceptual separation/distinction.
+    - there is a method which takes relevant information for the requests, goes
+      through the list of matchers to see which policies match the request, and
+      then constructs the list of rate limit checks to be performed (= key +
+      quota) for the request based on the matching policies.
+    - again, for now, the policy is hardcoded, but eventually this could be
+      loaded from a database or some configuration.
+    - and for now, i'm implementing a small subset of matchers and key parts as
+      a proof of concept.
