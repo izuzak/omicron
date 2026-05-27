@@ -96,6 +96,7 @@ async fn test_rate_limiting_metrics_are_emitted(
     .await;
 }
 
+// helper for making requests, to make tests easier to read
 async fn request(
     client: &dropshot::test_util::ClientTestContext,
     path: &str,
@@ -166,8 +167,9 @@ async fn assert_rate_limited_request_count(
         .await;
 }
 
-// helper to get the max value from the timeseries (even though there's only
-// one point in there right now, but might be nice for future tests)
+// helper to get the sum value from the timeseries. even though it's emitted as a
+// cumulative sum, the results are returned as deltas when querying via OxQL, if i
+// understand correctly
 fn rate_limited_request_count_from_table(
     table: &oxql::OxqlTable,
 ) -> Result<i64, MetricsNotYet> {
@@ -175,10 +177,10 @@ fn rate_limited_request_count_from_table(
         return Ok(0);
     };
 
-    // if there are multiple point, take the max since it's a cumulative count
+    // take the sum to get the total count since timeseries is returned as deltas
     match timeseries.points.values(0) {
         Some(ValueArray::Integer(vals)) => {
-            Ok(vals.iter().filter_map(|&v| v).max().unwrap_or(0))
+            Ok(vals.iter().filter_map(|&v| v).sum::<i64>())
         }
         other => panic!("expected integer values, found {other:?}"),
     }

@@ -186,3 +186,55 @@ Retry-After header          |
       test for this to verify things are working -- wrote a simple oxql query to
       fetch metrics for an endpoint using the existing wait-until-metrics
       pattern for executing the query.
+    - Aha! I had a bug -- I was looking at the raw query results and it turns
+      out that even though the metric is stored as a cumulative sum, OxQL query
+      results are constructed as deltas! Below is an example of query results.
+      So, I need to take the sum of points, not the max since the sum of deltas
+      represents the total number of limited requests.
+
+```
+OxqlTable {
+    name: "http_service:rate_limited_request",
+    timeseries: [
+        Timeseries {
+            fields: {
+                "id": Uuid(
+                    913233fe-92a8-4635-9572-183f495429c4,
+                ),
+                "name": String(
+                    "nexus-external",
+                ),
+                "operation_id": String(
+                    "current_user_view",
+                ),
+                "policy_id": String(
+                    "current_user_view-policy",
+                ),
+            },
+            points: Points {
+                start_times: Some(
+                    [
+                        2026-05-27T11:33:10.794231Z,
+                    ],
+                ),
+                timestamps: [
+                    2026-05-27T11:33:10.819751Z,
+                ],
+                values: [
+                    Values {
+                        values: Integer(
+                            [
+                                Some(
+                                    1,
+                                ),
+                            ],
+                        ),
+                        metric_type: Delta,
+                    },
+                ],
+            },
+            alignment: None,
+        },
+    ],
+}
+```
