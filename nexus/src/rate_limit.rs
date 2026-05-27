@@ -92,7 +92,8 @@ impl RateLimiter {
     // Internal method for checking limits for a list of keys:
     // - accepts a time instant for testing
     // - if the check fails for any key that has a non-expired window:
-    //     - return Err without incrementing anything
+    //     - return Err without incrementing any counters
+    //     - include information on all check that failed
     // - otherwise:
     //     - update the start of expired windows
     //     - increment counters for all passed keys
@@ -109,6 +110,12 @@ impl RateLimiter {
             if let Some(state) = states.get(&check.key) {
                 let elapsed = now.duration_since(state.window_started_at);
 
+                // a limit is hit if both of these are true:
+                // - the count for the current window is over the limit
+                // - the current window has not expired i.e. now is within the
+                //   window duration since the start of the window
+                // otherwise, we either need to start a new window or can
+                // increment the current window's coounter
                 if (state.count >= check.limit)
                     && (now.duration_since(state.window_started_at)
                         < check.window)
@@ -134,6 +141,9 @@ impl RateLimiter {
             return Err(RateLimitExceeded { exceeded, retry_after });
         }
 
+        // if no limits were hit, we need to:
+        // - start new windows for keys that previously had expired windows
+        // - increment counters for keys that had a non-expired window
         for check in checks {
             if let Some(state) = states.get_mut(&check.key) {
                 if now.duration_since(state.window_started_at) >= check.window {
@@ -249,6 +259,11 @@ impl RateLimitPolicy {
         self.id
     }
 
+    // create the checkfor this policy and a request based on its context
+    // this involves:
+    // - checking that all policy matchers match the information in the context
+    // - constructing a key from the policy's key template i.e. key parts
+    // - returning a check with that key and limit + window duration
     pub(crate) fn check_for(
         &self,
         ctx: &RateLimitRequestContext,
