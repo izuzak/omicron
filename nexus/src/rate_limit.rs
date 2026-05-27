@@ -45,6 +45,10 @@ impl RateLimitCheck {
     ) -> Self {
         Self { key, limit, window }
     }
+
+    pub(crate) fn key(&self) -> &RateLimitKey {
+        &self.key
+    }
 }
 
 // What we return in case a limit has been reached
@@ -216,6 +220,7 @@ impl RateLimitQuota {
 }
 
 // A rate limit policy defines:
+// - a policy id (a human-friendly, unique name)
 // - which requests it applies to (via matchers)
 // - how to construct the rate limit key for matching requests (via key_parts)
 // - what the quota is for the constructed key (via the quota)
@@ -224,6 +229,7 @@ impl RateLimitQuota {
 // a given request context and, if so, returns the corresponding RateLimitCheck
 // that can be used to check against the RateLimiter.
 pub(crate) struct RateLimitPolicy {
+    id: &'static str,
     matchers: Vec<MatchPredicate>,
     quota: RateLimitQuota,
     key_parts: Vec<RateLimitKeyPart>,
@@ -231,11 +237,16 @@ pub(crate) struct RateLimitPolicy {
 
 impl RateLimitPolicy {
     pub(crate) fn new(
+        id: &'static str,
         matchers: Vec<MatchPredicate>,
         quota: RateLimitQuota,
         key_parts: Vec<RateLimitKeyPart>,
     ) -> Self {
-        Self { matchers, quota, key_parts }
+        Self { id, matchers, quota, key_parts }
+    }
+
+    pub(crate) fn id(&self) -> &'static str {
+        self.id
     }
 
     pub(crate) fn check_for(
@@ -585,6 +596,7 @@ mod tests {
     #[test]
     fn policy_check_for_matching_endpoint_and_method_returns_check() {
         let policy = RateLimitPolicy::new(
+            "test_policy",
             vec![
                 MatchPredicate::Endpoint { any_of: vec!["some_endpoint"] },
                 MatchPredicate::HttpMethod { any_of: vec![http::Method::GET] },
@@ -624,6 +636,7 @@ mod tests {
     #[test]
     fn policy_check_for_endpoint_any_of_matches_any_listed_endpoint() {
         let policy = RateLimitPolicy::new(
+            "test_policy",
             vec![MatchPredicate::Endpoint {
                 any_of: vec!["some_endpoint_1", "some_endpoint_2"],
             }],
@@ -640,6 +653,7 @@ mod tests {
     #[test]
     fn policy_check_for_global_matches_any_request() {
         let policy = RateLimitPolicy::new(
+            "global-policy",
             vec![MatchPredicate::Global],
             RateLimitQuota::new(10, Duration::from_secs(60)),
             vec![RateLimitKeyPart::Literal("global")],

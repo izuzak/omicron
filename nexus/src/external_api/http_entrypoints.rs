@@ -4,16 +4,14 @@
 
 //! Handler functions (entrypoints) for external HTTP APIs
 
-use std::time::Duration;
-
 use super::console_api;
 use crate::app::SetTargetReleaseIntent;
 use crate::app::external_endpoints::authority_for_request;
 use crate::app::support_bundles::SupportBundleQueryType;
 use crate::context::{ApiContext, audit_and_time};
 use crate::rate_limit::{
-    MatchPredicate, RateLimitCheck, RateLimitKeyPart, RateLimitPolicy,
-    RateLimitQuota, RateLimitRequestContext, rate_limit_error,
+    MatchPredicate, RateLimitCheck, RateLimitKey, RateLimitKeyPart,
+    RateLimitPolicy, RateLimitQuota, RateLimitRequestContext, rate_limit_error,
 };
 use dropshot::Body;
 use dropshot::EmptyScanParams;
@@ -54,6 +52,8 @@ use nexus_types::external_api::{
     ssh_key, subnet_pool, support_bundle, switch, system, timeseries, update,
     user, vpc,
 };
+use std::collections::HashMap;
+use std::time::Duration;
 // Type imports for API implementations (per RFD 619)
 use nexus_types::external_api::bfd::BfdStatus;
 use nexus_types::external_api::certificate::Certificate;
@@ -143,6 +143,7 @@ fn rate_limit_policies() -> Vec<RateLimitPolicy> {
     vec![
         // policy for GET /v1/me endpoint
         RateLimitPolicy::new(
+            "current_user_view-policy",
             vec![
                 MatchPredicate::Endpoint { any_of: vec!["current_user_view"] },
                 MatchPredicate::HttpMethod { any_of: vec![http::Method::GET] },
@@ -156,6 +157,7 @@ fn rate_limit_policies() -> Vec<RateLimitPolicy> {
         ),
         // policy for GET /v1/system/users-builtin endpoint
         RateLimitPolicy::new(
+            "user_builtin_list-policy",
             vec![
                 MatchPredicate::Endpoint { any_of: vec!["user_builtin_list"] },
                 MatchPredicate::HttpMethod { any_of: vec![http::Method::GET] },
@@ -169,6 +171,7 @@ fn rate_limit_policies() -> Vec<RateLimitPolicy> {
         ),
         // global policy across all endpoints and methods
         RateLimitPolicy::new(
+            "global-policy",
             vec![MatchPredicate::Global],
             RateLimitQuota::new(2, Duration::from_secs(3600)),
             vec![RateLimitKeyPart::Literal("global")],
@@ -176,9 +179,12 @@ fn rate_limit_policies() -> Vec<RateLimitPolicy> {
     ]
 }
 
-// Helper to fetch policies, determine the checks that apply to a request based
-// on those policies, use those checks to verify limits, and convert to a
-// HttpError in case of hitting any limits.
+// Helper which:
+//   1. fetches policies,
+//   2. determines the checks that apply to a request based on those policies,
+//   3. uses those checks to verify limits,
+//   4. records hitting any limits with metrics produces,
+//   5. convert to a HttpError in case of hitting any limits.
 fn check_rate_limits(
     rqctx: &RequestContext<ApiContext>,
 ) -> Result<(), HttpError> {
@@ -187,19 +193,49 @@ fn check_rate_limits(
         rqctx.request.method().clone(),
     );
 
+    // this is a helper hashmap to be able to map limited keys back to the
+    // policy which created the check for that key. we need this for limited
+    // request and emitting metrics
+    let mut key_policies = HashMap::<RateLimitKey, RateLimitPolicy>::new();
+
     let checks = rate_limit_policies()
-        .iter()
-        .filter_map(|policy| policy.check_for(&rate_limit_rqctx))
+        .into_iter()
+        .filter_map(|policy| {
+            let check = policy.check_for(&rate_limit_rqctx);
+
+            if check.is_none() {
+                return None;
+            } else {
+                key_policies
+                    .insert(check.as_ref().unwrap().key().clone(), policy);
+                check
+            }
+        })
         .collect::<Vec<RateLimitCheck>>();
 
-    rqctx
-        .context()
-        .context
-        .rate_limiter
-        .check_and_increment(&checks)
-        .map_err(|exceeded| rate_limit_error(exceeded))?;
+    let rate_limit_result =
+        rqctx.context().context.rate_limiter.check_and_increment(&checks);
 
-    Ok(())
+    match rate_limit_result {
+        Ok(()) => Ok(()),
+        Err(exceeded) => {
+            // record limited request with producer for each exceeded policy
+            for exceeded_key in &exceeded.exceeded {
+                if let Some(policy) = key_policies.get(&exceeded_key.key) {
+                    rqctx
+                        .context()
+                        .context
+                        .rate_limiter
+                        .record_limited_request(
+                            &policy.id(),
+                            &rqctx.endpoint.operation_id,
+                        );
+                }
+            }
+
+            Err(rate_limit_error(exceeded))
+        }
+    }
 }
 
 enum NexusExternalApiImpl {}

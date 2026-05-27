@@ -181,3 +181,8 @@ Retry-After header          |
     - Second, adding a producer which records rate limited requests as a simple
       counter (per policy and endpoint) and produces samples.
     - Third, adding a simple unit test to verify.
+    - Fourth, integrate into the endpoint request flow so that metrics are
+      actually produced, collected, and can be queried. Added an integration
+      test for this to verify things are working -- wrote a simple oxql query to
+      fetch metrics for an endpoint using the existing wait-until-metrics
+      pattern for executing the query.

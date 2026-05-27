@@ -4,6 +4,7 @@
 //! Shared state used by API request handlers
 use super::Nexus;
 use crate::rate_limit::{RateLimitCheck, RateLimitExceeded, RateLimiter};
+use crate::rate_limit_metrics::RateLimitMetrics;
 use crate::saga_interface::SagaContext;
 use async_trait::async_trait;
 use authn::external::HttpAuthnScheme;
@@ -125,13 +126,23 @@ pub struct ServerContext {
 pub(crate) struct RateLimitManager {
     enabled: AtomicBool,
     limiter: RateLimiter,
+    metrics: RateLimitMetrics,
 }
 
 impl RateLimitManager {
-    pub(crate) fn new(enabled: bool) -> Self {
-        Self { enabled: AtomicBool::new(enabled), limiter: RateLimiter::new() }
+    pub(crate) fn new(enabled: bool, nexus_id: Uuid) -> Self {
+        Self {
+            enabled: AtomicBool::new(enabled),
+            limiter: RateLimiter::new(),
+            metrics: RateLimitMetrics::new(nexus_id, "nexus-external"),
+        }
     }
 
+    pub(crate) fn metrics_producer(&self) -> RateLimitMetrics {
+        self.metrics.clone()
+    }
+
+    // Run limiter checks if rate limiting is enabled, otherwise returns Ok
     pub(crate) fn check_and_increment(
         &self,
         checks: &[RateLimitCheck],
@@ -140,6 +151,15 @@ impl RateLimitManager {
             false => Ok(()),
             true => self.limiter.check_and_increment(checks),
         }
+    }
+
+    // Record rate limited request for a specific policy
+    pub(crate) fn record_limited_request(
+        &self,
+        policy_id: &str,
+        operation_id: &str,
+    ) {
+        self.metrics.record_limited_request(policy_id, operation_id);
     }
 
     pub(crate) fn set_enabled(&self, enabled: bool) {
@@ -344,6 +364,15 @@ impl ServerContext {
             }
         };
 
+        let rate_limiter = RateLimitManager::new(
+            config.deployment.rate_limiting.enabled,
+            config.deployment.id.into_untyped_uuid(),
+        );
+
+        producer_registry
+            .register_producer(rate_limiter.metrics_producer())
+            .unwrap();
+
         Ok(Arc::new(ServerContext {
             nexus,
             log,
@@ -364,9 +393,7 @@ impl ServerContext {
                 static_dir,
             },
             omdb_config: config.pkg.omdb.clone(),
-            rate_limiter: RateLimitManager::new(
-                config.deployment.rate_limiting.enabled,
-            ),
+            rate_limiter: rate_limiter,
         }))
     }
 
