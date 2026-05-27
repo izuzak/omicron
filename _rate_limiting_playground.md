@@ -168,3 +168,16 @@ Retry-After header          |
                       processing request
                       continues if not limited
 ```
+
+12. I've been reading about how the metrics pipeline works so going to try to
+    add some metrics for the rate limiting. The latency metrics already track
+    the number of requests per endpoint and per response status, and since all
+    limited requests result in a 429, that's good enough just for counting the
+    number of limited requests. So, perhaps a metric which tracks limited
+    requests per endpoint and per rate limit policy would be useful? Gonna try
+    to add that. 
+    - First, adding a new metric to http-service.toml since I think that makes
+      sense as a target for now. 
+    - Second, adding a producer which records rate limited requests as a simple
+      counter (per policy and endpoint) and produces samples.
+    - Third, adding a simple unit test to verify.

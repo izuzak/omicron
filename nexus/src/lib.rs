@@ -16,6 +16,7 @@ mod internal_api;
 mod lockstep_api;
 mod populate;
 mod rate_limit;
+mod rate_limit_metrics;
 mod saga_interface;
 
 pub use app::Nexus;

@@ -37,3 +37,16 @@ endpoint the request is targeted to and the HTTP method used.
 [fields.status_code]
 type = "u16"
 description = "HTTP status code in the server's response"
+
+[[metrics]]
+name = "rate_limited_request"
+description = "Number of rate-limited HTTP requests"
+units = "count"
+datum_type = "cumulative_u64"
+versions = [
+    { added_in = 1, fields = [ "policy_id", "operation_id"] }
+]
+
+[fields.policy_id]
+type = "string"
+description = "Rate limit policy identifier"
