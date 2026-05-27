@@ -11,6 +11,16 @@ The goal (a working rate limiting system) is not the only goal, the goal is
 learning. So, I might do things in sub-optimal, roundabout ways for the purpose
 of learning and exploration. 
 
+# Current state
+
+I'll try to continuously update this section to list the large pieces I (at least partially) explored/implemented:
+
+- In-memory fixed-window rate limiter
+- Support for checking multiple limits for a single request
+- Usage of the limiter for the nexus external API
+- Rate limiting policies for defining for which request to apply limiting and how 
+- Metrics for limited requests
+
 # General notes in no particular order
 
 Sooo, a rate limiter has some notion of:
