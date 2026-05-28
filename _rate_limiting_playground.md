@@ -248,3 +248,7 @@ OxqlTable {
     ],
 }
 ```
+
+13. Short detour -- noticed a lot of cloning of checks in tests that felt
+unnecessary. So tried to reduce that by changing the method to accept a
+slice of borrowable checks instead of a slice of owned checks.

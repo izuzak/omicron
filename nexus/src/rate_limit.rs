@@ -4,6 +4,7 @@
 
 use dropshot::ClientErrorStatusCode;
 use dropshot::HttpError;
+use std::borrow::Borrow;
 use std::collections::HashMap;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
@@ -84,7 +85,7 @@ impl RateLimiter {
     // method with the time to set to the current instant
     pub fn check_and_increment(
         &self,
-        checks: &[RateLimitCheck],
+        checks: &[impl Borrow<RateLimitCheck>],
     ) -> RateLimitResult {
         self.check_and_increment_at(checks, Instant::now())
     }
@@ -100,13 +101,14 @@ impl RateLimiter {
     //     - return Ok
     fn check_and_increment_at(
         &self,
-        checks: &[RateLimitCheck],
+        checks: &[impl Borrow<RateLimitCheck>],
         now: Instant,
     ) -> RateLimitResult {
         let mut states = self.states.lock().unwrap();
         let mut exceeded: Vec<RateLimitExceededKey> = Vec::new();
 
         for check in checks {
+            let check = check.borrow();
             if let Some(state) = states.get(&check.key) {
                 let elapsed = now.duration_since(state.window_started_at);
 
@@ -145,6 +147,8 @@ impl RateLimiter {
         // - start new windows for keys that previously had expired windows
         // - increment counters for keys that had a non-expired window
         for check in checks {
+            let check = check.borrow();
+
             if let Some(state) = states.get_mut(&check.key) {
                 if now.duration_since(state.window_started_at) >= check.window {
                     state.window_started_at = now;
@@ -343,18 +347,18 @@ mod tests {
             window: Duration::from_secs(3600),
         };
 
-        assert_not_limited(limiter.check_and_increment(&[check_key_a.clone()]));
-        assert_not_limited(limiter.check_and_increment(&[check_key_a.clone()]));
+        assert_not_limited(limiter.check_and_increment(&[&check_key_a]));
+        assert_not_limited(limiter.check_and_increment(&[&check_key_a]));
         assert_limited(
             limiter.check_and_increment(&[check_key_a.clone()]),
             &[key_a.clone()],
             None,
         );
 
-        assert_not_limited(limiter.check_and_increment(&[check_key_b.clone()]));
-        assert_not_limited(limiter.check_and_increment(&[check_key_b.clone()]));
+        assert_not_limited(limiter.check_and_increment(&[&check_key_b]));
+        assert_not_limited(limiter.check_and_increment(&[&check_key_b]));
         assert_limited(
-            limiter.check_and_increment(&[check_key_b.clone()]),
+            limiter.check_and_increment(&[&check_key_b]),
             &[key_b.clone()],
             None,
         );
@@ -387,16 +391,10 @@ mod tests {
         // these two check_and_increment calls succeed, but they increment the
         // shared key's counter to the limit
         assert_not_limited(
-            limiter.check_and_increment(&[
-                check_key_a.clone(),
-                check_shared.clone(),
-            ]),
+            limiter.check_and_increment(&[&check_key_a, &check_shared]),
         );
         assert_not_limited(
-            limiter.check_and_increment(&[
-                check_key_a.clone(),
-                check_shared.clone(),
-            ]),
+            limiter.check_and_increment(&[&check_key_a, &check_shared]),
         );
 
         // this check_and_increment fails since it also uses the shared key
@@ -412,10 +410,10 @@ mod tests {
 
         // because key_b's counter wasn't incremented, two check_and_increment
         // calls should still succeed and the third one should fail
-        assert_not_limited(limiter.check_and_increment(&[check_key_b.clone()]));
-        assert_not_limited(limiter.check_and_increment(&[check_key_b.clone()]));
+        assert_not_limited(limiter.check_and_increment(&[&check_key_b]));
+        assert_not_limited(limiter.check_and_increment(&[&check_key_b]));
         assert_limited(
-            limiter.check_and_increment(&[check_key_b.clone()]),
+            limiter.check_and_increment(&[&check_key_b]),
             &[key_b.clone()],
             None,
         );
@@ -440,12 +438,8 @@ mod tests {
         };
 
         // make two checks to reach the limit for "limited" key
-        assert_not_limited(
-            limiter.check_and_increment(&[check_limited.clone()]),
-        );
-        assert_not_limited(
-            limiter.check_and_increment(&[check_limited.clone()]),
-        );
+        assert_not_limited(limiter.check_and_increment(&[&check_limited]));
+        assert_not_limited(limiter.check_and_increment(&[&check_limited]));
 
         // verify that counter exists for "limited" and doesn't for "missing"
         assert_eq!(limiter.count_for_key(&limited), Some(2));
@@ -455,10 +449,7 @@ mod tests {
         // reached for one key. The counter should not be created for the
         // other key.
         assert_limited(
-            limiter.check_and_increment(&[
-                check_missing.clone(),
-                check_limited.clone(),
-            ]),
+            limiter.check_and_increment(&[&check_missing, &check_limited]),
             &[limited.clone()],
             None,
         );
@@ -492,8 +483,8 @@ mod tests {
         assert_eq!(limiter.count_for_key(&key_b), None);
 
         // trigger checks so that the counters are created
-        assert_not_limited(limiter.check_and_increment(&[check_key_a.clone()]));
-        assert_not_limited(limiter.check_and_increment(&[check_key_b.clone()]));
+        assert_not_limited(limiter.check_and_increment(&[&check_key_a]));
+        assert_not_limited(limiter.check_and_increment(&[&check_key_b]));
 
         // confirm that counters now exist
         assert_eq!(limiter.count_for_key(&key_a), Some(1));
@@ -507,8 +498,8 @@ mod tests {
         assert_eq!(limiter.count_for_key(&key_b), None);
 
         // trigger checks so that the counters are created again
-        assert_not_limited(limiter.check_and_increment(&[check_key_a.clone()]));
-        assert_not_limited(limiter.check_and_increment(&[check_key_b.clone()]));
+        assert_not_limited(limiter.check_and_increment(&[&check_key_a]));
+        assert_not_limited(limiter.check_and_increment(&[&check_key_b]));
 
         // confirm that counters exist again
         assert_eq!(limiter.count_for_key(&key_a), Some(1));
@@ -538,13 +529,11 @@ mod tests {
         let now = Instant::now();
 
         // make a check to reach the limit
-        assert_not_limited(
-            limiter.check_and_increment_at(&[check.clone()], now),
-        );
+        assert_not_limited(limiter.check_and_increment_at(&[&check], now));
 
         // verify that the following check within the same window is limited
         assert_limited(
-            limiter.check_and_increment_at(&[check.clone()], now),
+            limiter.check_and_increment_at(&[&check], now),
             &[key.clone()],
             None,
         );
@@ -552,7 +541,7 @@ mod tests {
         // verify that a check is limited if made just before window expires
         assert_limited(
             limiter.check_and_increment_at(
-                &[check.clone()],
+                &[&check],
                 now + window - Duration::from_nanos(1),
             ),
             &[key.clone()],
@@ -561,7 +550,7 @@ mod tests {
 
         // verify that the following check after the window expires is allowed
         assert_not_limited(
-            limiter.check_and_increment_at(&[check.clone()], now + window),
+            limiter.check_and_increment_at(&[&check], now + window),
         );
     }
 
@@ -589,8 +578,7 @@ mod tests {
             window: Duration::from_secs(120),
         };
 
-        let checks =
-            &[check_key_a.clone(), check_key_b.clone(), check_key_c.clone()];
+        let checks = &[&check_key_a, &check_key_b, &check_key_c];
 
         // make two requests to hit the limits for key_a and key_c
         assert_not_limited(limiter.check_and_increment_at(checks, now));
