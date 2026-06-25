@@ -216,6 +216,10 @@ pub const DEMO_ACCESS_TOKEN_DELETE_URL: &str =
 // Global policy
 pub const SYSTEM_POLICY_URL: &'static str = "/v1/system/policy";
 
+// Rate limit policy list
+pub const SYSTEM_RATE_LIMIT_POLICY_LIST_URL: &'static str =
+    "/v1/system/rate-limit-policies";
+
 // Silo used for testing
 pub static DEMO_SILO_NAME: LazyLock<Name> =
     LazyLock::new(|| "demo-silo".parse().unwrap());
@@ -3836,6 +3840,13 @@ pub static VERIFY_ENDPOINTS: LazyLock<Vec<VerifyEndpoint>> = LazyLock::new(
                 visibility: Visibility::Protected,
                 unprivileged_access: UnprivilegedAccess::None,
                 allowed_methods: vec![AllowedMethod::Delete],
+            },
+            // Rate limit policy list
+            VerifyEndpoint {
+                url: SYSTEM_RATE_LIMIT_POLICY_LIST_URL,
+                visibility: Visibility::Public,
+                unprivileged_access: UnprivilegedAccess::ReadOnly,
+                allowed_methods: vec![AllowedMethod::Get],
             },
         ]
     },

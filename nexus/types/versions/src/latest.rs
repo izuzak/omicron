@@ -579,3 +579,10 @@ pub mod path_params {
     pub use crate::v2025_11_20_00::path_params::UserPath;
     pub use crate::v2025_11_20_00::path_params::VpcPath;
 }
+
+pub mod rate_limit {
+    pub use crate::v2026_06_09_00::rate_limit::RateLimitKeyPart;
+    pub use crate::v2026_06_09_00::rate_limit::RateLimitMatcher;
+    pub use crate::v2026_06_09_00::rate_limit::RateLimitPolicy;
+    pub use crate::v2026_06_09_00::rate_limit::RateLimitQuota;
+}

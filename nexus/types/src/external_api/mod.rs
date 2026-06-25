@@ -36,6 +36,7 @@ pub mod policy;
 pub mod probe;
 pub mod project;
 pub mod rack;
+pub mod rate_limit;
 pub mod saml;
 pub mod scim;
 pub mod silo;

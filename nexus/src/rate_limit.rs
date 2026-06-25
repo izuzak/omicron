@@ -231,6 +231,14 @@ impl RateLimitQuota {
     pub(crate) fn new(limit: usize, window: Duration) -> Self {
         Self { limit, window }
     }
+
+    pub(crate) fn limit(&self) -> usize {
+        self.limit
+    }
+
+    pub(crate) fn window(&self) -> Duration {
+        self.window
+    }
 }
 
 // A rate limit policy defines:
@@ -261,6 +269,18 @@ impl RateLimitPolicy {
 
     pub(crate) fn id(&self) -> &'static str {
         self.id
+    }
+
+    pub(crate) fn matchers(&self) -> &[MatchPredicate] {
+        &self.matchers
+    }
+
+    pub(crate) fn quota(&self) -> &RateLimitQuota {
+        &self.quota
+    }
+
+    pub(crate) fn key_parts(&self) -> &[RateLimitKeyPart] {
+        &self.key_parts
     }
 
     // create the checkfor this policy and a request based on its context

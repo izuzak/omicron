@@ -83,6 +83,7 @@ api_versions!([
     // |  date-based version should be at the top of the list.
     // v
     // (next_yyyy_mm_dd_nn, IDENT),
+    (2026_06_09_00, LIST_RATE_LIMIT_POLICIES),
     (2026_05_08_00, MANUAL_DISK_ADOPTION),
     (2026_05_07_00, REMOVE_DUPLICATED_NETWORKING_TYPES),
     (2026_04_30_00, PROBE_AND_SAML_DOCS),
@@ -349,6 +350,12 @@ const PUT_UPDATE_REPOSITORY_MAX_BYTES: usize = 4 * GIB;
                 description = "Metrics provide insight into the operation of the Oxide deployment. These include telemetry on hardware and software components that can be used to understand the current state as well as to diagnose issues.",
                 external_docs = {
                     url = "http://docs.oxide.computer/api/system-metrics"
+                }
+            },
+            "system/rate-limits" = {
+                description = "Endpoints related to API rate limits.",
+                external_docs = {
+                    url = "http://docs.oxide.computer/api/system-rate-limits"
                 }
             },
             "system/ip-pools" = {
@@ -8383,6 +8390,20 @@ pub trait NexusExternalApi {
         rqctx: RequestContext<Self::Context>,
         path_params: Path<latest::alert::WebhookSecretSelector>,
     ) -> Result<HttpResponseDeleted, HttpError>;
+
+    /// List rate limit policies
+    #[endpoint {
+        method = GET,
+        path = "/v1/system/rate-limit-policies",
+        tags = ["system/rate-limits"],
+        versions = VERSION_LIST_RATE_LIMIT_POLICIES..,
+    }]
+    async fn system_rate_limit_policy_list(
+        rqctx: RequestContext<Self::Context>,
+    ) -> Result<
+        HttpResponseOk<Vec<latest::rate_limit::RateLimitPolicy>>,
+        HttpError,
+    >;
 }
 
 /// Perform extra validations on the OpenAPI document, and generate the

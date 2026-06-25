@@ -252,3 +252,106 @@ OxqlTable {
 13. Short detour -- noticed a lot of cloning of checks in tests that felt
 unnecessary. So tried to reduce that by changing the method to accept a
 slice of borrowable checks instead of a slice of owned checks.
+
+14. Okay, now something I wanted to do for a while -- add a new API endpoint.
+So, I'm adding an endpoint for listing rate limit policies. This currently
+returns the hardcoded policies, but in the future -- it would return policies
+stored in the database. The API response looks like this:
+
+    ```json
+    GET /v1/system/rate-limit-policies
+    
+    [
+      {
+          "id":"current_user_view-policy",
+          "matchers":[
+            {
+                "type":"endpoint",
+                "any_of":[
+                  "current_user_view"
+                ]
+            },
+            {
+                "type":"http_method",
+                "any_of":[
+                  "GET"
+                ]
+            }
+          ],
+          "quota":{
+            "limit":2,
+            "window_seconds":3600
+          },
+          "key_parts":[
+            {
+                "type":"literal",
+                "value":"endpoint"
+            },
+            {
+                "type":"http_method"
+            },
+            {
+                "type":"endpoint"
+            }
+          ]
+      },
+      {
+          "id":"user_builtin_list-policy",
+          "matchers":[
+            {
+                "type":"endpoint",
+                "any_of":[
+                  "user_builtin_list"
+                ]
+            },
+            {
+                "type":"http_method",
+                "any_of":[
+                  "GET"
+                ]
+            }
+          ],
+          "quota":{
+            "limit":2,
+            "window_seconds":3600
+          },
+          "key_parts":[
+            {
+                "type":"literal",
+                "value":"endpoint"
+            },
+            {
+                "type":"http_method"
+            },
+            {
+                "type":"endpoint"
+            }
+          ]
+      },
+      {
+          "id":"global-policy",
+          "matchers":[
+            {
+                "type":"global"
+            }
+          ],
+          "quota":{
+            "limit":2,
+            "window_seconds":3600
+          },
+          "key_parts":[
+            {
+                "type":"literal",
+                "value":"global"
+            }
+          ]
+      }
+    ]
+    ```
+
+    A few notes:
+      - This makes me realize that the http_method matcher is not needed if
+        there's an endpoint matcher on the policy since an endpoint is a
+        combination of a path and a method already.
+      - Since the policies are hardcoded, the test is "hardcoded" as wel -- it
+        checks for specific policies to be returned.

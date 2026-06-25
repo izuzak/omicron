@@ -48,9 +48,9 @@ use nexus_types::external_api::{
     affinity, alert, audit, certificate, console, device, disk, external_ip,
     external_subnet, floating_ip, hardware, identity_provider, image, instance,
     internet_gateway, ip_pool, metrics, multicast, networking, oxql,
-    path_params, policy, probe, project, rack, scim, silo, sled, snapshot,
-    ssh_key, subnet_pool, support_bundle, switch, system, timeseries, update,
-    user, vpc,
+    path_params, policy, probe, project, rack, rate_limit, scim, silo, sled,
+    snapshot, ssh_key, subnet_pool, support_bundle, switch, system, timeseries,
+    update, user, vpc,
 };
 use std::collections::HashMap;
 use std::time::Duration;
@@ -177,6 +177,71 @@ fn rate_limit_policies() -> Vec<RateLimitPolicy> {
             vec![RateLimitKeyPart::Literal("global")],
         ),
     ]
+}
+
+// helper for convrting the internal rate limiting structures into public
+// structures used in API responses
+fn rate_limit_policy_to_view(
+    policy: &RateLimitPolicy,
+) -> rate_limit::RateLimitPolicy {
+    rate_limit::RateLimitPolicy {
+        id: policy.id().to_string(),
+        matchers: policy
+            .matchers()
+            .iter()
+            .map(rate_limit_matcher_to_view)
+            .collect(),
+        quota: rate_limit_quota_to_view(policy.quota()),
+        key_parts: policy
+            .key_parts()
+            .iter()
+            .map(rate_limit_key_part_to_view)
+            .collect(),
+    }
+}
+
+fn rate_limit_quota_to_view(
+    quota: &RateLimitQuota,
+) -> rate_limit::RateLimitQuota {
+    rate_limit::RateLimitQuota {
+        limit: quota.limit() as u64,
+        window_seconds: quota.window().as_secs(),
+    }
+}
+
+fn rate_limit_matcher_to_view(
+    matcher: &MatchPredicate,
+) -> rate_limit::RateLimitMatcher {
+    match matcher {
+        MatchPredicate::Endpoint { any_of } => {
+            rate_limit::RateLimitMatcher::Endpoint {
+                any_of: any_of.iter().map(|s| s.to_string()).collect(),
+            }
+        }
+        MatchPredicate::HttpMethod { any_of } => {
+            rate_limit::RateLimitMatcher::HttpMethod {
+                any_of: any_of
+                    .iter()
+                    .map(|method| method.as_str().to_string())
+                    .collect(),
+            }
+        }
+        MatchPredicate::Global => rate_limit::RateLimitMatcher::Global,
+    }
+}
+
+fn rate_limit_key_part_to_view(
+    key_part: &RateLimitKeyPart,
+) -> rate_limit::RateLimitKeyPart {
+    match key_part {
+        RateLimitKeyPart::Literal(value) => {
+            rate_limit::RateLimitKeyPart::Literal { value: value.to_string() }
+        }
+        RateLimitKeyPart::Endpoint => rate_limit::RateLimitKeyPart::Endpoint,
+        RateLimitKeyPart::HttpMethod => {
+            rate_limit::RateLimitKeyPart::HttpMethod
+        }
+    }
 }
 
 // Helper which:
@@ -9158,6 +9223,22 @@ impl NexusExternalApi for NexusExternalApiImpl {
             Ok(HttpResponseCreated(alert::AlertDeliveryId {
                 delivery_id: delivery_id.into_untyped_uuid(),
             }))
+        })
+        .await
+    }
+
+    // Endpoint for listing rate limit policies
+    async fn system_rate_limit_policy_list(
+        rqctx: RequestContext<Self::Context>,
+    ) -> Result<HttpResponseOk<Vec<rate_limit::RateLimitPolicy>>, HttpError>
+    {
+        audit_and_time(&rqctx, |_opctx, _nexus| async move {
+            let policies = rate_limit_policies()
+                .iter()
+                .map(rate_limit_policy_to_view)
+                .collect();
+
+            Ok(HttpResponseOk(policies))
         })
         .await
     }

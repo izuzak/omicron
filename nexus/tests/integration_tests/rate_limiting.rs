@@ -10,6 +10,7 @@ use nexus_test_utils::http_testing::{RequestBuilder, TestResponse};
 use nexus_test_utils::wait_for_producer;
 use nexus_test_utils_macros::nexus_test;
 use nexus_types::external_api::oxql;
+use nexus_types::external_api::rate_limit;
 use oxql_types::point::ValueArray;
 
 type ControlPlaneTestContext =
@@ -94,6 +95,102 @@ async fn test_rate_limiting_metrics_are_emitted(
         1,
     )
     .await;
+}
+
+#[nexus_test]
+async fn test_rate_limit_policy_list(cptestctx: &ControlPlaneTestContext) {
+    let client = &cptestctx.external_client;
+
+    // fetch policies via the API
+    let policies: Vec<rate_limit::RateLimitPolicy> =
+        NexusRequest::object_get(client, "/v1/system/rate-limit-policies")
+            .authn_as(AuthnMode::PrivilegedUser)
+            .execute_and_parse_unwrap::<Vec<rate_limit::RateLimitPolicy>>()
+            .await;
+
+    assert_eq!(policies.len(), 3);
+
+    // use the helper to check that the endpoint policies have the correct
+    // values
+    assert_endpoint_policy(
+        find_policy(&policies, "current_user_view-policy"),
+        "current_user_view",
+    );
+
+    assert_endpoint_policy(
+        find_policy(&policies, "user_builtin_list-policy"),
+        "user_builtin_list",
+    );
+
+    // check the global policy manually since it has a different shape
+    let global_policy = find_policy(&policies, "global-policy");
+    assert_eq!(global_policy.quota.limit, 2);
+    assert_eq!(global_policy.quota.window_seconds, 3600);
+
+    assert_eq!(global_policy.matchers.len(), 1);
+    assert!(matches!(
+        &global_policy.matchers[0],
+        rate_limit::RateLimitMatcher::Global
+    ));
+
+    assert_eq!(global_policy.key_parts.len(), 1);
+    assert!(matches!(
+        &global_policy.key_parts[0],
+        rate_limit::RateLimitKeyPart::Literal { value } if value == "global"
+    ));
+}
+
+// helper to find a policy with a specific id
+fn find_policy<'a>(
+    policies: &'a [rate_limit::RateLimitPolicy],
+    id: &str,
+) -> &'a rate_limit::RateLimitPolicy {
+    policies
+        .iter()
+        .find(|policy| policy.id == id)
+        .unwrap_or_else(|| panic!("expected rate limit policy {id:?}"))
+}
+
+// helper to assert that an endpoint policy has the correct values. In the
+// future, the test would first set up some policies in the DB, and then check
+// that the API returns the correct values. But since the policies are hardcoded
+// right now, we also have a "hardcoded" test
+fn assert_endpoint_policy(
+    policy: &rate_limit::RateLimitPolicy,
+    endpoint: &str,
+) {
+    assert_eq!(policy.quota.limit, 2);
+    assert_eq!(policy.quota.window_seconds, 3600);
+
+    assert_eq!(policy.matchers.len(), 2);
+    assert!(policy.matchers.iter().any(|matcher| {
+        matches!(
+            matcher,
+            rate_limit::RateLimitMatcher::Endpoint { any_of }
+                if any_of == &[endpoint.to_string()]
+        )
+    }));
+    assert!(policy.matchers.iter().any(|matcher| {
+        matches!(
+            matcher,
+            rate_limit::RateLimitMatcher::HttpMethod { any_of }
+                if any_of == &["GET".to_string()]
+        )
+    }));
+
+    assert_eq!(policy.key_parts.len(), 3);
+    assert!(matches!(
+        &policy.key_parts[0],
+        rate_limit::RateLimitKeyPart::Literal { value } if value == "endpoint"
+    ));
+    assert!(matches!(
+        &policy.key_parts[1],
+        rate_limit::RateLimitKeyPart::HttpMethod
+    ));
+    assert!(matches!(
+        &policy.key_parts[2],
+        rate_limit::RateLimitKeyPart::Endpoint
+    ));
 }
 
 // helper for making requests, to make tests easier to read

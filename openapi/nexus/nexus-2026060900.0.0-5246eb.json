@@ -7,7 +7,7 @@
       "url": "https://oxide.computer",
       "email": "api@oxide.computer"
     },
-    "version": "2026050800.0.0"
+    "version": "2026060900.0.0"
   },
   "paths": {
     "/device/auth": {
@@ -11486,6 +11486,37 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/FleetRolePolicy"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "$ref": "#/components/responses/Error"
+          },
+          "5XX": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/v1/system/rate-limit-policies": {
+      "get": {
+        "tags": [
+          "system/rate-limits"
+        ],
+        "summary": "List rate limit policies",
+        "operationId": "system_rate_limit_policy_list",
+        "responses": {
+          "200": {
+            "description": "successful operation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Array_of_RateLimitPolicy",
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/RateLimitPolicy"
+                  }
                 }
               }
             }
@@ -26490,6 +26521,164 @@
           "items"
         ]
       },
+      "RateLimitKeyPart": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "literal"
+                ]
+              },
+              "value": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "type",
+              "value"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "endpoint"
+                ]
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "http_method"
+                ]
+              }
+            },
+            "required": [
+              "type"
+            ]
+          }
+        ]
+      },
+      "RateLimitMatcher": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "any_of": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "endpoint"
+                ]
+              }
+            },
+            "required": [
+              "any_of",
+              "type"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "any_of": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "http_method"
+                ]
+              }
+            },
+            "required": [
+              "any_of",
+              "type"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "global"
+                ]
+              }
+            },
+            "required": [
+              "type"
+            ]
+          }
+        ]
+      },
+      "RateLimitPolicy": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "key_parts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RateLimitKeyPart"
+            }
+          },
+          "matchers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RateLimitMatcher"
+            }
+          },
+          "quota": {
+            "$ref": "#/components/schemas/RateLimitQuota"
+          }
+        },
+        "required": [
+          "id",
+          "key_parts",
+          "matchers",
+          "quota"
+        ]
+      },
+      "RateLimitQuota": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "format": "uint64",
+            "minimum": 0
+          },
+          "window_seconds": {
+            "type": "integer",
+            "format": "uint64",
+            "minimum": 0
+          }
+        },
+        "required": [
+          "limit",
+          "window_seconds"
+        ]
+      },
       "Route": {
         "description": "A route to a destination network through a gateway address.",
         "type": "object",
@@ -32026,6 +32215,13 @@
       "description": "Probes for testing network connectivity",
       "externalDocs": {
         "url": "http://docs.oxide.computer/api/probes"
+      }
+    },
+    {
+      "name": "system/rate-limits",
+      "description": "Endpoints related to API rate limits.",
+      "externalDocs": {
+        "url": "http://docs.oxide.computer/api/system-rate-limits"
       }
     },
     {
