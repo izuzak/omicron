@@ -205,6 +205,7 @@ pub(crate) fn rate_limit_error(exceeded: RateLimitExceeded) -> HttpError {
 // groups, silos, etc.
 pub(crate) enum MatchPredicate {
     Endpoint { any_of: Vec<&'static str> },
+    #[allow(dead_code)]
     HttpMethod { any_of: Vec<http::Method> },
     Global,
 }
@@ -217,6 +218,7 @@ pub(crate) enum MatchPredicate {
 pub(crate) enum RateLimitKeyPart {
     Literal(&'static str),
     Endpoint,
+    #[allow(dead_code)]
     HttpMethod,
 }
 

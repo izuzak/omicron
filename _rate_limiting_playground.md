@@ -352,6 +352,6 @@ stored in the database. The API response looks like this:
     A few notes:
       - This makes me realize that the http_method matcher is not needed if
         there's an endpoint matcher on the policy since an endpoint is a
-        combination of a path and a method already.
+        combination of a path and a method already. So I've cleaned this up.
       - Since the policies are hardcoded, the test is "hardcoded" as wel -- it
         checks for specific policies to be returned.

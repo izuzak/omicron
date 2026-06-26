@@ -162,33 +162,20 @@ fn assert_endpoint_policy(
     assert_eq!(policy.quota.limit, 2);
     assert_eq!(policy.quota.window_seconds, 3600);
 
-    assert_eq!(policy.matchers.len(), 2);
-    assert!(policy.matchers.iter().any(|matcher| {
-        matches!(
-            matcher,
-            rate_limit::RateLimitMatcher::Endpoint { any_of }
-                if any_of == &[endpoint.to_string()]
-        )
-    }));
-    assert!(policy.matchers.iter().any(|matcher| {
-        matches!(
-            matcher,
-            rate_limit::RateLimitMatcher::HttpMethod { any_of }
-                if any_of == &["GET".to_string()]
-        )
-    }));
+    assert_eq!(policy.matchers.len(), 1);
+    assert!(matches!(
+        &policy.matchers[0],
+        rate_limit::RateLimitMatcher::Endpoint { any_of }
+            if any_of == &[endpoint.to_string()]
+    ));
 
-    assert_eq!(policy.key_parts.len(), 3);
+    assert_eq!(policy.key_parts.len(), 2);
     assert!(matches!(
         &policy.key_parts[0],
         rate_limit::RateLimitKeyPart::Literal { value } if value == "endpoint"
     ));
     assert!(matches!(
         &policy.key_parts[1],
-        rate_limit::RateLimitKeyPart::HttpMethod
-    ));
-    assert!(matches!(
-        &policy.key_parts[2],
         rate_limit::RateLimitKeyPart::Endpoint
     ));
 }

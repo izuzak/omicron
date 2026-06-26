@@ -144,28 +144,24 @@ fn rate_limit_policies() -> Vec<RateLimitPolicy> {
         // policy for GET /v1/me endpoint
         RateLimitPolicy::new(
             "current_user_view-policy",
-            vec![
-                MatchPredicate::Endpoint { any_of: vec!["current_user_view"] },
-                MatchPredicate::HttpMethod { any_of: vec![http::Method::GET] },
-            ],
+            vec![MatchPredicate::Endpoint {
+                any_of: vec!["current_user_view"],
+            }],
             RateLimitQuota::new(2, Duration::from_secs(3600)),
             vec![
                 RateLimitKeyPart::Literal("endpoint"),
-                RateLimitKeyPart::HttpMethod,
                 RateLimitKeyPart::Endpoint,
             ],
         ),
         // policy for GET /v1/system/users-builtin endpoint
         RateLimitPolicy::new(
             "user_builtin_list-policy",
-            vec![
-                MatchPredicate::Endpoint { any_of: vec!["user_builtin_list"] },
-                MatchPredicate::HttpMethod { any_of: vec![http::Method::GET] },
-            ],
+            vec![MatchPredicate::Endpoint {
+                any_of: vec!["user_builtin_list"],
+            }],
             RateLimitQuota::new(2, Duration::from_secs(3600)),
             vec![
                 RateLimitKeyPart::Literal("endpoint"),
-                RateLimitKeyPart::HttpMethod,
                 RateLimitKeyPart::Endpoint,
             ],
         ),
