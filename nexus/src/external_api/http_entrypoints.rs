@@ -13,6 +13,7 @@ use crate::rate_limit::{
     MatchPredicate, RateLimitCheck, RateLimitKey, RateLimitKeyPart,
     RateLimitPolicy, RateLimitQuota, RateLimitRequestContext, rate_limit_error,
 };
+use crate::rate_limit_builtin::builtin_rate_limit_policies;
 use dropshot::Body;
 use dropshot::EmptyScanParams;
 use dropshot::Header;
@@ -53,7 +54,6 @@ use nexus_types::external_api::{
     update, user, vpc,
 };
 use std::collections::HashMap;
-use std::time::Duration;
 // Type imports for API implementations (per RFD 619)
 use nexus_types::external_api::bfd::BfdStatus;
 use nexus_types::external_api::certificate::Certificate;
@@ -139,43 +139,11 @@ pub(crate) fn external_api() -> NexusApiDescription {
 // Helper for returning rate limiting "policies" for API endpoints. Currently
 // hardcoded values, but this could be fetched from the database in the future,
 // along with exemptions/overrides.
-fn rate_limit_policies() -> Vec<RateLimitPolicy> {
-    vec![
-        // policy for GET /v1/me endpoint
-        RateLimitPolicy::new(
-            "current_user_view-policy",
-            vec![MatchPredicate::Endpoint {
-                any_of: vec!["current_user_view"],
-            }],
-            RateLimitQuota::new(2, Duration::from_secs(3600)),
-            vec![
-                RateLimitKeyPart::Literal("endpoint"),
-                RateLimitKeyPart::Endpoint,
-            ],
-        ),
-        // policy for GET /v1/system/users-builtin endpoint
-        RateLimitPolicy::new(
-            "user_builtin_list-policy",
-            vec![MatchPredicate::Endpoint {
-                any_of: vec!["user_builtin_list"],
-            }],
-            RateLimitQuota::new(2, Duration::from_secs(3600)),
-            vec![
-                RateLimitKeyPart::Literal("endpoint"),
-                RateLimitKeyPart::Endpoint,
-            ],
-        ),
-        // global policy across all endpoints and methods
-        RateLimitPolicy::new(
-            "global-policy",
-            vec![MatchPredicate::Global],
-            RateLimitQuota::new(2, Duration::from_secs(3600)),
-            vec![RateLimitKeyPart::Literal("global")],
-        ),
-    ]
+fn rate_limit_policies() -> &'static [RateLimitPolicy] {
+    builtin_rate_limit_policies()
 }
 
-// helper for convrting the internal rate limiting structures into public
+// helper for converting the internal rate limiting structures into public
 // structures used in API responses
 fn rate_limit_policy_to_view(
     policy: &RateLimitPolicy,
@@ -257,19 +225,18 @@ fn check_rate_limits(
     // this is a helper hashmap to be able to map limited keys back to the
     // policy which created the check for that key. we need this for limited
     // request and emitting metrics
-    let mut key_policies = HashMap::<RateLimitKey, RateLimitPolicy>::new();
+    let mut key_policies = HashMap::<RateLimitKey, &RateLimitPolicy>::new();
 
     let checks = rate_limit_policies()
-        .into_iter()
+        .iter()
         .filter_map(|policy| {
             let check = policy.check_for(&rate_limit_rqctx);
 
-            if check.is_none() {
-                return None;
+            if let Some(check) = check {
+                key_policies.insert(check.key().clone(), policy);
+                Some(check)
             } else {
-                key_policies
-                    .insert(check.as_ref().unwrap().key().clone(), policy);
-                check
+                None
             }
         })
         .collect::<Vec<RateLimitCheck>>();
@@ -288,7 +255,7 @@ fn check_rate_limits(
                         .context
                         .rate_limiter
                         .record_limited_request(
-                            &policy.id(),
+                            policy.id(),
                             &rqctx.endpoint.operation_id,
                         );
                 }

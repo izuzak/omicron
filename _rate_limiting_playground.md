@@ -355,3 +355,12 @@ stored in the database. The API response looks like this:
         combination of a path and a method already. So I've cleaned this up.
       - Since the policies are hardcoded, the test is "hardcoded" as wel -- it
         checks for specific policies to be returned.
+
+15. I want to now try storing policies in the database. This is likely going to
+    be a longer journey since I need to: define the DB schema and model, seed
+    built-in policies into the DB, create a background task which syncs policies
+    from the DB with nexus, update endpoint for listing policies to use DB, add
+    an endpoint for creating policies, etc. 
+    - First, I'm extracting the hardcoded policies into a separate file for
+      built-in policies. Later, I'll move this to db-fixed-data so that it can
+      be used to seed the policies in the DB.
