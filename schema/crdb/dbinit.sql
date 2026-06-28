@@ -8617,6 +8617,63 @@ CREATE TABLE IF NOT EXISTS omicron.public.trust_quorum_member (
     PRIMARY KEY (rack_id, epoch DESC, hw_baseboard_id)
 );
 
+-- Generation number for the current list of rate limit policies. This is
+-- incremented whenever a rate limit policy is changed, added or removed.
+CREATE TABLE IF NOT EXISTS omicron.public.rate_limit_policy_generation (
+    -- There should only be one row of this table for the whole DB.
+    -- It's a little goofy, but filter on "singleton = true" before querying
+    -- or applying updates, and you'll access the singleton row.
+    --
+    -- We also add a constraint on this table to ensure it's not possible to
+    -- access the version of this table with "singleton = false".
+    singleton BOOL NOT NULL PRIMARY KEY,
+    -- Generation number owned and incremented by Nexus
+    generation INT8 NOT NULL,
+
+    CHECK (singleton = true),
+    CHECK (generation > 0)
+);
+
+INSERT INTO omicron.public.rate_limit_policy_generation (
+    singleton,
+    generation
+) VALUES
+    (TRUE, 1)
+ON CONFLICT DO NOTHING;
+
+CREATE TABLE IF NOT EXISTS omicron.public.rate_limit_policy (
+    -- Identity metadata (resource)
+    id UUID PRIMARY KEY,
+    name STRING(63) NOT NULL,
+    description STRING(512) NOT NULL,
+    time_created TIMESTAMPTZ NOT NULL,
+    time_modified TIMESTAMPTZ NOT NULL,
+    time_deleted TIMESTAMPTZ,
+
+    -- Policy configuration data
+    enabled BOOL NOT NULL,
+    quota_limit INT8 NOT NULL,
+    quota_window_seconds INT8 NOT NULL,
+
+    -- Matchers and key parts are stored as json for now for simplicity
+    matchers JSONB NOT NULL,
+    key_parts JSONB NOT NULL,
+
+    -- Quota limit and window duration should be positive
+    CONSTRAINT rate_limit_policy_quota_limit_positive
+        CHECK (quota_limit > 0),
+    CONSTRAINT rate_limit_policy_quota_window_positive
+        CHECK (quota_window_seconds > 0)
+);
+
+-- We want policy names to be unique
+CREATE UNIQUE INDEX IF NOT EXISTS lookup_rate_limit_policy_by_name
+ON omicron.public.rate_limit_policy (
+    name
+)
+WHERE
+    time_deleted IS NULL;
+
 -- Keep this at the end of file so that the database does not contain a version
 -- until it is fully populated.
 INSERT INTO omicron.public.db_metadata (
@@ -8626,7 +8683,7 @@ INSERT INTO omicron.public.db_metadata (
     version,
     target_version
 ) VALUES
-    (TRUE, NOW(), NOW(), '259.0.0', NULL)
+    (TRUE, NOW(), NOW(), '260.0.0', NULL)
 ON CONFLICT DO NOTHING;
 
 COMMIT;

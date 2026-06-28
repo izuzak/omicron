@@ -3356,3 +3356,26 @@ table! {
 
 allow_tables_to_appear_in_same_query!(trust_quorum_member, hw_baseboard_id);
 joinable!(trust_quorum_member -> hw_baseboard_id(hw_baseboard_id));
+
+table! {
+    rate_limit_policy_generation (singleton) {
+        singleton -> Bool,
+        generation -> Int8,
+    }
+}
+
+table! {
+    rate_limit_policy (id) {
+        id -> Uuid,
+        name -> Text,
+        description -> Text,
+        time_created -> Timestamptz,
+        time_modified -> Timestamptz,
+        time_deleted -> Nullable<Timestamptz>,
+        enabled -> Bool,
+        quota_limit -> Int8,
+        quota_window_seconds -> Int8,
+        matchers -> Jsonb,
+        key_parts -> Jsonb,
+    }
+}

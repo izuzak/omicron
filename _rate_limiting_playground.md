@@ -361,6 +361,23 @@ stored in the database. The API response looks like this:
     built-in policies into the DB, create a background task which syncs policies
     from the DB with nexus, update endpoint for listing policies to use DB, add
     an endpoint for creating policies, etc. 
-    - First, I'm extracting the hardcoded policies into a separate file for
-      built-in policies. Later, I'll move this to db-fixed-data so that it can
-      be used to seed the policies in the DB.
+      - First, I'm extracting the hardcoded policies into a separate file for
+        built-in policies. Later, I'll move this to db-fixed-data so that it can
+        be used to seed the policies in the DB.
+      - Second, the DB tables and models. 
+        - I'm adding a omicron.public.rate_limit_policy table which uses the
+          standard identity metadata columns for API resources. Since rate limit
+          policies will be something operators can list, create, delete, and
+          update, it made sense to model them as resources. I'm also adding an
+          "enabled" column for enabling/disabling a rate limit policy since this
+          feels like something useful from the start.
+        - I'm adding a omicron.public.rate_limit_policy_generation table similar
+          to the tuf_generation table: there is a single row in this table and
+          the generation is incremented when a policy is added, changed, or
+          deleted. With this, a nexus process can check if their local
+          generation number matches what is in the DB, and reload policies if
+          they don't match.
+        - Added the same changes as migrations as well.
+        - Added diesel models which match the tables. No methods yet in this
+          step.
+        - Verified that `cargo nextest run -p omicron-nexus schema` passes.
