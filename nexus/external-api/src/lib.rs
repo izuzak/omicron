@@ -8400,8 +8400,9 @@ pub trait NexusExternalApi {
     }]
     async fn system_rate_limit_policy_list(
         rqctx: RequestContext<Self::Context>,
+        query_params: Query<PaginatedByNameOrId>,
     ) -> Result<
-        HttpResponseOk<Vec<latest::rate_limit::RateLimitPolicy>>,
+        HttpResponseOk<ResultsPage<latest::rate_limit::RateLimitPolicy>>,
         HttpError,
     >;
 }

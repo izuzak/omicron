@@ -2,15 +2,19 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
+use api_identity::ObjectIdentity;
+use omicron_common::api::external::{IdentityMetadata, ObjectIdentity};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 // These are the "public" structures used for representing policies in the API
 // responses. They pretty much mirror the internal structures today.
 
-#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+#[derive(ObjectIdentity, Clone, Debug, Serialize, Deserialize, JsonSchema)]
 pub struct RateLimitPolicy {
-    pub id: String,
+    #[serde(flatten)]
+    pub identity: IdentityMetadata,
+    pub enabled: bool,
     pub matchers: Vec<RateLimitMatcher>,
     pub quota: RateLimitQuota,
     pub key_parts: Vec<RateLimitKeyPart>,

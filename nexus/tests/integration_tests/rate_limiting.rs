@@ -101,14 +101,44 @@ async fn test_rate_limiting_metrics_are_emitted(
 async fn test_rate_limit_policy_list(cptestctx: &ControlPlaneTestContext) {
     let client = &cptestctx.external_client;
 
-    // fetch policies via the API
-    let policies: Vec<rate_limit::RateLimitPolicy> =
-        NexusRequest::object_get(client, "/v1/system/rate-limit-policies")
+    let response =
+        NexusRequest::object_get(client, "/v1/system/rate-limit-policies?limit=5")
             .authn_as(AuthnMode::PrivilegedUser)
-            .execute_and_parse_unwrap::<Vec<rate_limit::RateLimitPolicy>>()
-            .await;
+            .execute()
+            .await
+            .unwrap();
 
-    assert_eq!(policies.len(), 3);
+    let body: serde_json::Value =
+        serde_json::from_slice(response.body.as_ref()).unwrap();
+    eprintln!("{}", serde_json::to_string_pretty(&body).unwrap());
+
+    // fetch policies via the API by name (the default)
+    let name_collection =
+        NexusRequest::iter_collection_authn::<rate_limit::RateLimitPolicy>(
+            client,
+            "/v1/system/rate-limit-policies",
+            "",
+            Some(2),
+        )
+        .await
+        .unwrap();
+    assert_eq!(name_collection.all_items.len(), 3);
+    assert_eq!(name_collection.npages, 3);
+
+    // fetch policies via the API by id
+    let id_collection =
+        NexusRequest::iter_collection_authn::<rate_limit::RateLimitPolicy>(
+            client,
+            "/v1/system/rate-limit-policies",
+            "sort_by=id_ascending",
+            Some(2),
+        )
+        .await
+        .unwrap();
+    assert_eq!(id_collection.all_items.len(), 3);
+    assert_eq!(id_collection.npages, 3);
+
+    let policies = name_collection.all_items;
 
     // use the helper to check that the endpoint policies have the correct
     // values
@@ -126,6 +156,7 @@ async fn test_rate_limit_policy_list(cptestctx: &ControlPlaneTestContext) {
     let global_policy = find_policy(&policies, "global-policy");
     assert_eq!(global_policy.quota.limit, 2);
     assert_eq!(global_policy.quota.window_seconds, 3600);
+    assert!(global_policy.enabled);
 
     assert_eq!(global_policy.matchers.len(), 1);
     assert!(matches!(
@@ -140,15 +171,15 @@ async fn test_rate_limit_policy_list(cptestctx: &ControlPlaneTestContext) {
     ));
 }
 
-// helper to find a policy with a specific id
+// helper to find a policy with a specific name
 fn find_policy<'a>(
     policies: &'a [rate_limit::RateLimitPolicy],
-    id: &str,
+    name: &str,
 ) -> &'a rate_limit::RateLimitPolicy {
     policies
         .iter()
-        .find(|policy| policy.id == id)
-        .unwrap_or_else(|| panic!("expected rate limit policy {id:?}"))
+        .find(|policy| policy.identity.name.as_str() == name)
+        .unwrap_or_else(|| panic!("expected rate limit policy {name:?}"))
 }
 
 // helper to assert that a DB-backed endpoint policy has the expected values.
@@ -158,6 +189,7 @@ fn assert_endpoint_policy(
 ) {
     assert_eq!(policy.quota.limit, 2);
     assert_eq!(policy.quota.window_seconds, 3600);
+    assert!(policy.enabled);
 
     assert_eq!(policy.matchers.len(), 1);
     assert!(matches!(

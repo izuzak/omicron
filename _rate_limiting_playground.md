@@ -400,10 +400,101 @@ stored in the database. The API response looks like this:
       - Fifth, use the DB table as the source of truth for the API endpoint for
         listing rate limit policies. Some things I didn't do in this step and
         I will do next:
-        - Checking/incrementing rate limits during request processing still
-          uses the "old" in-memory rate limit policies.
+        - Checking/incrementing rate limits during request processing still uses
+          the "old" in-memory rate limit policies.
         - Pagination is not implemented on the endpoint for listing policies,
           even though it's supported by the DB querying method.
         - The DB table doesn't fully match the old rate limit structure which is
           still returned by the API, e.g. enabled, UUID-based id, description
           exist in the DB records but not in the API response.
+      - Next, added pagination to the endpoint and made the API response include
+        the fields from the DB table. The API response looks like this now:
+     
+        ```json
+        {
+          "items": [
+            {
+              "description": "Built-in rate-limit policy for current-user view requests",
+              "enabled": true,
+              "id": "001de000-726c-4000-8000-000000000000",
+              "key_parts": [
+                {
+                  "type": "literal",
+                  "value": "endpoint"
+                },
+                {
+                  "type": "endpoint"
+                }
+              ],
+              "matchers": [
+                {
+                  "any_of": [
+                    "current_user_view"
+                  ],
+                  "type": "endpoint"
+                }
+              ],
+              "name": "current-user-view-policy",
+              "quota": {
+                "limit": 2,
+                "window_seconds": 3600
+              },
+              "time_created": "2026-06-29T22:07:57.866497Z",
+              "time_modified": "2026-06-29T22:07:57.866497Z"
+            },
+            {
+              "description": "Built-in global rate-limit policy",
+              "enabled": true,
+              "id": "001de000-726c-4000-8000-000000000002",
+              "key_parts": [
+                {
+                  "type": "literal",
+                  "value": "global"
+                }
+              ],
+              "matchers": [
+                {
+                  "type": "global"
+                }
+              ],
+              "name": "global-policy",
+              "quota": {
+                "limit": 2,
+                "window_seconds": 3600
+              },
+              "time_created": "2026-06-29T22:07:57.866501Z",
+              "time_modified": "2026-06-29T22:07:57.866501Z"
+            },
+            {
+              "description": "Built-in rate-limit policy for user-builtin list requests",
+              "enabled": true,
+              "id": "001de000-726c-4000-8000-000000000001",
+              "key_parts": [
+                {
+                  "type": "literal",
+                  "value": "endpoint"
+                },
+                {
+                  "type": "endpoint"
+                }
+              ],
+              "matchers": [
+                {
+                  "any_of": [
+                    "user_builtin_list"
+                  ],
+                  "type": "endpoint"
+                }
+              ],
+              "name": "user-builtin-list-policy",
+              "quota": {
+                "limit": 2,
+                "window_seconds": 3600
+              },
+              "time_created": "2026-06-29T22:07:57.866500Z",
+              "time_modified": "2026-06-29T22:07:57.866500Z"
+            }
+          ],
+          "next_page": "eyJ2IjoidjEiLCJwYWdlX3N0YXJ0Ijp7InNvcnRfYnkiOiJuYW1lX2FzY2VuZGluZyIsImxhc3Rfc2VlbiI6InVzZXItYnVpbHRpbi1saXN0LXBvbGljeSJ9fQ=="
+        }
+        ```

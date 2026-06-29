@@ -11506,17 +11506,42 @@
         ],
         "summary": "List rate limit policies",
         "operationId": "system_rate_limit_policy_list",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "description": "Maximum number of items returned by a single call",
+            "schema": {
+              "nullable": true,
+              "type": "integer",
+              "format": "uint32",
+              "minimum": 1
+            }
+          },
+          {
+            "in": "query",
+            "name": "page_token",
+            "description": "Token returned by previous call to retrieve the subsequent page",
+            "schema": {
+              "nullable": true,
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "sort_by",
+            "schema": {
+              "$ref": "#/components/schemas/NameOrIdSortMode"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "successful operation",
             "content": {
               "application/json": {
                 "schema": {
-                  "title": "Array_of_RateLimitPolicy",
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/RateLimitPolicy"
-                  }
+                  "$ref": "#/components/schemas/RateLimitPolicyResultsPage"
                 }
               }
             }
@@ -11527,6 +11552,9 @@
           "5XX": {
             "$ref": "#/components/responses/Error"
           }
+        },
+        "x-dropshot-pagination": {
+          "required": []
         }
       }
     },
@@ -26632,10 +26660,20 @@
         ]
       },
       "RateLimitPolicy": {
+        "description": "Identity-related metadata that's included in nearly all public API objects",
         "type": "object",
         "properties": {
-          "id": {
+          "description": {
+            "description": "Human-readable free-form text about a resource",
             "type": "string"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "id": {
+            "description": "Unique, immutable, system-controlled identifier for each resource",
+            "type": "string",
+            "format": "uuid"
           },
           "key_parts": {
             "type": "array",
@@ -26649,15 +26687,59 @@
               "$ref": "#/components/schemas/RateLimitMatcher"
             }
           },
+          "name": {
+            "description": "Unique, mutable, user-controlled identifier for each resource",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Name"
+              }
+            ]
+          },
           "quota": {
             "$ref": "#/components/schemas/RateLimitQuota"
+          },
+          "time_created": {
+            "description": "Timestamp when this resource was created",
+            "type": "string",
+            "format": "date-time"
+          },
+          "time_modified": {
+            "description": "Timestamp when this resource was last modified",
+            "type": "string",
+            "format": "date-time"
           }
         },
         "required": [
+          "description",
+          "enabled",
           "id",
           "key_parts",
           "matchers",
-          "quota"
+          "name",
+          "quota",
+          "time_created",
+          "time_modified"
+        ]
+      },
+      "RateLimitPolicyResultsPage": {
+        "description": "A single page of results",
+        "type": "object",
+        "properties": {
+          "items": {
+            "description": "list of items on this page of results",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RateLimitPolicy"
+            }
+          },
+          "next_page": {
+            "nullable": true,
+            "description": "token used to fetch the next page of results (if any)",
+            "type": "string"
+          }
+        },
+        "required": [
+          "items"
         ]
       },
       "RateLimitQuota": {

@@ -166,7 +166,8 @@ fn rate_limit_policy_to_view(
     )?;
 
     Ok(rate_limit::RateLimitPolicy {
-        id: policy.name().to_string(),
+        identity: policy.identity(),
+        enabled: policy.enabled,
         matchers,
         quota: rate_limit::RateLimitQuota {
             limit: u64::try_from(policy.quota_limit).map_err(|error| {
@@ -9173,24 +9174,53 @@ impl NexusExternalApi for NexusExternalApiImpl {
     // Endpoint for listing rate limit policies
     async fn system_rate_limit_policy_list(
         rqctx: RequestContext<Self::Context>,
-    ) -> Result<HttpResponseOk<Vec<rate_limit::RateLimitPolicy>>, HttpError>
-    {
-        audit_and_time(&rqctx, |opctx, nexus| async move {
-            let pagparams = PaginatedBy::Id(DataPageParams::max_page());
-            let policies = nexus
-                .datastore()
-                .rate_limit_policy_list(
-                    &opctx,
-                    &pagparams,
-                    db::datastore::RateLimitPolicyFilter::All,
-                )
-                .await?
-                .iter()
-                .map(rate_limit_policy_to_view)
-                .collect::<Result<Vec<_>, _>>()?;
+        query_params: Query<PaginatedByNameOrId>,
+    ) -> Result<
+        HttpResponseOk<ResultsPage<rate_limit::RateLimitPolicy>>,
+        HttpError,
+    > {
+        let apictx = rqctx.context();
+        let nexus = &apictx.context.nexus;
+        let query = query_params.into_inner();
+        let pagparams = data_page_params_for(&rqctx, &query)?;
+        let scan_params = ScanByNameOrId::from_query(&query)?;
+        let paginated_by = name_or_id_pagination(&pagparams, scan_params)?;
+        let handler = async {
+            let opctx = std::sync::Arc::new(
+                crate::context::op_context_for_external_api(&rqctx).await?,
+            );
+            let audit = nexus.audit_log_entry_init(&opctx, &rqctx).await?;
+            let result: Result<
+                HttpResponseOk<ResultsPage<rate_limit::RateLimitPolicy>>,
+                HttpError,
+            > = async {
+                let policies = nexus
+                    .datastore()
+                    .rate_limit_policy_list(
+                        &opctx,
+                        &paginated_by,
+                        db::datastore::RateLimitPolicyFilter::All,
+                    )
+                    .await?
+                    .iter()
+                    .map(rate_limit_policy_to_view)
+                    .collect::<Result<Vec<_>, _>>()?;
 
-            Ok(HttpResponseOk(policies))
-        })
-        .await
+                Ok(HttpResponseOk(ScanByNameOrId::results_page(
+                    &query,
+                    policies,
+                    &marker_for_name_or_id,
+                )?))
+            }
+            .await;
+            let _ =
+                nexus.audit_log_entry_complete(&opctx, &audit, &result).await;
+            result
+        };
+        apictx
+            .context
+            .external_latencies
+            .instrument_dropshot_handler(&rqctx, handler)
+            .await
     }
 }
