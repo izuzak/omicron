@@ -30,6 +30,7 @@
 //    001de000-4401   built-in services project
 //    001de000-074c   built-in services vpc
 //    001de000-c470   built-in services vpc subnets
+//    001de000-726c   built-in rate-limit policies ("rl" in ascii)
 //    001de000-all0   singleton ID for source IP allowlist ("all0" is like "allow")
 //    001de000-7768   singleton ID for webhook probe event ('wh' for 'webhook'
 //                    is ascii 0x77 0x68).
@@ -38,6 +39,7 @@ use std::sync::LazyLock;
 
 pub mod allow_list;
 pub mod project;
+pub mod rate_limit_policy;
 pub mod role_assignment;
 pub mod silo;
 pub mod silo_user;
@@ -83,6 +85,10 @@ mod test {
     use super::FLEET_ID;
     use super::allow_list::USER_FACING_SERVICES_ALLOW_LIST_ID;
     use super::assert_valid_uuid;
+    use super::rate_limit_policy::{
+        CURRENT_USER_VIEW_POLICY_ID, GLOBAL_POLICY_ID,
+        USER_BUILTIN_LIST_POLICY_ID,
+    };
 
     #[test]
     fn test_builtin_fleet_id_is_valid() {
@@ -92,5 +98,12 @@ mod test {
     #[test]
     fn test_allowlist_id_is_valid() {
         assert_valid_uuid(&USER_FACING_SERVICES_ALLOW_LIST_ID);
+    }
+
+    #[test]
+    fn test_rate_limit_policy_ids_are_valid() {
+        assert_valid_uuid(&CURRENT_USER_VIEW_POLICY_ID);
+        assert_valid_uuid(&USER_BUILTIN_LIST_POLICY_ID);
+        assert_valid_uuid(&GLOBAL_POLICY_ID);
     }
 }

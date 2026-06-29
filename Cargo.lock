@@ -6897,6 +6897,7 @@ dependencies = [
  "omicron-uuid-kinds",
  "omicron-workspace-hack",
  "pq-sys",
+ "serde_json",
  "strum 0.27.2",
  "uuid",
 ]

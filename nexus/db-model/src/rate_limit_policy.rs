@@ -7,6 +7,8 @@ use db_macros::Resource;
 use nexus_db_schema::schema::{
     rate_limit_policy, rate_limit_policy_generation,
 };
+use omicron_common::api::external::IdentityMetadataCreateParams;
+use uuid::Uuid;
 
 #[derive(Queryable, Clone, Debug, Selectable, Insertable)]
 #[diesel(table_name = rate_limit_policy_generation)]
@@ -15,6 +17,7 @@ pub struct RateLimitPolicyGeneration {
     pub generation: Generation,
 }
 
+/// Configuration for a rate limit policy.
 #[derive(Queryable, Clone, Debug, Selectable, Insertable, Resource)]
 #[diesel(table_name = rate_limit_policy)]
 pub struct RateLimitPolicy {
@@ -26,4 +29,25 @@ pub struct RateLimitPolicy {
     pub quota_window_seconds: i64,
     pub matchers: serde_json::Value,
     pub key_parts: serde_json::Value,
+}
+
+impl RateLimitPolicy {
+    pub fn new_with_id(
+        id: Uuid,
+        identity: IdentityMetadataCreateParams,
+        enabled: bool,
+        quota_limit: i64,
+        quota_window_seconds: i64,
+        matchers: serde_json::Value,
+        key_parts: serde_json::Value,
+    ) -> Self {
+        Self {
+            identity: RateLimitPolicyIdentity::new(id, identity),
+            enabled,
+            quota_limit,
+            quota_window_seconds,
+            matchers,
+            key_parts,
+        }
+    }
 }

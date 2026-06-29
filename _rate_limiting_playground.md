@@ -381,3 +381,14 @@ stored in the database. The API response looks like this:
         - Added diesel models which match the tables. No methods yet in this
           step.
         - Verified that `cargo nextest run -p omicron-nexus schema` passes.
+      - Third, the DB query methods and seeding the DB with builtin policies.
+        - I added only the bare minimum methods for getting the generation,
+          fetching policies, and populating the policy table with builtin
+          policies. I'll add more methods (e.g. for updating, deleting, etc)
+          later.
+        - I am NOT triggering the populating of the policy table on nexus
+          startup yet, I'll do that in a followup commit. This commit only
+          introduces the methods and tests them -- they are unused right now.
+        - Also, the builtin policies in db-fixed-data mirror the policies from
+          rate_limit_builtin.rs for now, but rate_limit_builtin.rs will be
+          deleted later once I wire everything up.
