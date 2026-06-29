@@ -113,12 +113,12 @@ async fn test_rate_limit_policy_list(cptestctx: &ControlPlaneTestContext) {
     // use the helper to check that the endpoint policies have the correct
     // values
     assert_endpoint_policy(
-        find_policy(&policies, "current_user_view-policy"),
+        find_policy(&policies, "current-user-view-policy"),
         "current_user_view",
     );
 
     assert_endpoint_policy(
-        find_policy(&policies, "user_builtin_list-policy"),
+        find_policy(&policies, "user-builtin-list-policy"),
         "user_builtin_list",
     );
 
@@ -151,10 +151,7 @@ fn find_policy<'a>(
         .unwrap_or_else(|| panic!("expected rate limit policy {id:?}"))
 }
 
-// helper to assert that an endpoint policy has the correct values. In the
-// future, the test would first set up some policies in the DB, and then check
-// that the API returns the correct values. But since the policies are hardcoded
-// right now, we also have a "hardcoded" test
+// helper to assert that a DB-backed endpoint policy has the expected values.
 fn assert_endpoint_policy(
     policy: &rate_limit::RateLimitPolicy,
     endpoint: &str,

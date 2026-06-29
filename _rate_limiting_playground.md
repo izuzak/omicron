@@ -397,3 +397,13 @@ stored in the database. The API response looks like this:
         - Needed to tweak the query tests a bit since they expect an empty DB.
           Luckily, there is `raw_datastore_with_auth` for getting an empty DB
           and `OpContext::for_background` for creating `OpContext`s. Hooray!
+      - Fifth, use the DB table as the source of truth for the API endpoint for
+        listing rate limit policies. Some things I didn't do in this step and
+        I will do next:
+        - Checking/incrementing rate limits during request processing still
+          uses the "old" in-memory rate limit policies.
+        - Pagination is not implemented on the endpoint for listing policies,
+          even though it's supported by the DB querying method.
+        - The DB table doesn't fully match the old rate limit structure which is
+          still returned by the API, e.g. enabled, UUID-based id, description
+          exist in the DB records but not in the API response.

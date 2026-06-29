@@ -10,8 +10,8 @@ use crate::app::external_endpoints::authority_for_request;
 use crate::app::support_bundles::SupportBundleQueryType;
 use crate::context::{ApiContext, audit_and_time};
 use crate::rate_limit::{
-    MatchPredicate, RateLimitCheck, RateLimitKey, RateLimitKeyPart,
-    RateLimitPolicy, RateLimitQuota, RateLimitRequestContext, rate_limit_error,
+    RateLimitCheck, RateLimitKey, RateLimitPolicy, RateLimitRequestContext,
+    rate_limit_error,
 };
 use crate::rate_limit_builtin::builtin_rate_limit_policies;
 use dropshot::Body;
@@ -136,76 +136,56 @@ pub(crate) fn external_api() -> NexusApiDescription {
         .expect("registered entrypoints")
 }
 
-// Helper for returning rate limiting "policies" for API endpoints. Currently
-// hardcoded values, but this could be fetched from the database in the future,
-// along with exemptions/overrides.
+// Helper for returning the in-memory policies used for enforcing rate limits
+// during request processing. The endpoint for listing rate limits reads
+// policies from the DB.
 fn rate_limit_policies() -> &'static [RateLimitPolicy] {
     builtin_rate_limit_policies()
 }
 
-// helper for converting the internal rate limiting structures into public
-// structures used in API responses
+// helper for converting DB rate limiting structures into public structures used
+// in API responses
 fn rate_limit_policy_to_view(
-    policy: &RateLimitPolicy,
-) -> rate_limit::RateLimitPolicy {
-    rate_limit::RateLimitPolicy {
-        id: policy.id().to_string(),
-        matchers: policy
-            .matchers()
-            .iter()
-            .map(rate_limit_matcher_to_view)
-            .collect(),
-        quota: rate_limit_quota_to_view(policy.quota()),
-        key_parts: policy
-            .key_parts()
-            .iter()
-            .map(rate_limit_key_part_to_view)
-            .collect(),
-    }
-}
+    policy: &db::model::RateLimitPolicy,
+) -> Result<rate_limit::RateLimitPolicy, Error> {
+    let matchers = serde_json::from_value(policy.matchers.clone()).map_err(
+        |error| {
+            Error::internal_error(format!(
+                "failed to deserialize rate limit policy matchers for {}: {error}",
+                policy.name(),
+            ))
+        },
+    )?;
+    let key_parts = serde_json::from_value(policy.key_parts.clone()).map_err(
+        |error| {
+            Error::internal_error(format!(
+                "failed to deserialize rate limit policy key parts for {}: {error}",
+                policy.name(),
+            ))
+        },
+    )?;
 
-fn rate_limit_quota_to_view(
-    quota: &RateLimitQuota,
-) -> rate_limit::RateLimitQuota {
-    rate_limit::RateLimitQuota {
-        limit: quota.limit() as u64,
-        window_seconds: quota.window().as_secs(),
-    }
-}
-
-fn rate_limit_matcher_to_view(
-    matcher: &MatchPredicate,
-) -> rate_limit::RateLimitMatcher {
-    match matcher {
-        MatchPredicate::Endpoint { any_of } => {
-            rate_limit::RateLimitMatcher::Endpoint {
-                any_of: any_of.iter().map(|s| s.to_string()).collect(),
-            }
-        }
-        MatchPredicate::HttpMethod { any_of } => {
-            rate_limit::RateLimitMatcher::HttpMethod {
-                any_of: any_of
-                    .iter()
-                    .map(|method| method.as_str().to_string())
-                    .collect(),
-            }
-        }
-        MatchPredicate::Global => rate_limit::RateLimitMatcher::Global,
-    }
-}
-
-fn rate_limit_key_part_to_view(
-    key_part: &RateLimitKeyPart,
-) -> rate_limit::RateLimitKeyPart {
-    match key_part {
-        RateLimitKeyPart::Literal(value) => {
-            rate_limit::RateLimitKeyPart::Literal { value: value.to_string() }
-        }
-        RateLimitKeyPart::Endpoint => rate_limit::RateLimitKeyPart::Endpoint,
-        RateLimitKeyPart::HttpMethod => {
-            rate_limit::RateLimitKeyPart::HttpMethod
-        }
-    }
+    Ok(rate_limit::RateLimitPolicy {
+        id: policy.name().to_string(),
+        matchers,
+        quota: rate_limit::RateLimitQuota {
+            limit: u64::try_from(policy.quota_limit).map_err(|error| {
+                Error::internal_error(format!(
+                    "invalid rate limit policy quota limit for {}: {error}",
+                    policy.name(),
+                ))
+            })?,
+            window_seconds: u64::try_from(policy.quota_window_seconds).map_err(
+                |error| {
+                    Error::internal_error(format!(
+                        "invalid rate limit policy quota window for {}: {error}",
+                        policy.name(),
+                    ))
+                },
+            )?,
+        },
+        key_parts,
+    })
 }
 
 // Helper which:
@@ -9195,11 +9175,19 @@ impl NexusExternalApi for NexusExternalApiImpl {
         rqctx: RequestContext<Self::Context>,
     ) -> Result<HttpResponseOk<Vec<rate_limit::RateLimitPolicy>>, HttpError>
     {
-        audit_and_time(&rqctx, |_opctx, _nexus| async move {
-            let policies = rate_limit_policies()
+        audit_and_time(&rqctx, |opctx, nexus| async move {
+            let pagparams = PaginatedBy::Id(DataPageParams::max_page());
+            let policies = nexus
+                .datastore()
+                .rate_limit_policy_list(
+                    &opctx,
+                    &pagparams,
+                    db::datastore::RateLimitPolicyFilter::All,
+                )
+                .await?
                 .iter()
                 .map(rate_limit_policy_to_view)
-                .collect();
+                .collect::<Result<Vec<_>, _>>()?;
 
             Ok(HttpResponseOk(policies))
         })
