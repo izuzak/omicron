@@ -392,3 +392,8 @@ stored in the database. The API response looks like this:
         - Also, the builtin policies in db-fixed-data mirror the policies from
           rate_limit_builtin.rs for now, but rate_limit_builtin.rs will be
           deleted later once I wire everything up.
+      - Fourth, actually hooking up the populating of the rate_limit_policy
+        table so that it happens on nexus startup.
+        - Needed to tweak the query tests a bit since they expect an empty DB.
+          Luckily, there is `raw_datastore_with_auth` for getting an empty DB
+          and `OpContext::for_background` for creating `OpContext`s. Hooray!

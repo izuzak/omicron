@@ -271,12 +271,12 @@ mod tests {
     async fn test_rate_limit_policy_generation_get() {
         let logctx =
             dev::test_setup_log("test_rate_limit_policy_generation_get");
-        let db = TestDatabase::new_with_datastore(&logctx.log).await;
-        let (opctx, datastore) = (db.opctx(), db.datastore());
+        let (db, datastore, opctx, _) =
+            raw_datastore_with_auth(&logctx.log).await;
 
         // Verify that the public method fetches the initial generation from the DB
         assert_eq!(
-            datastore.rate_limit_policy_generation_get(opctx).await.unwrap(),
+            datastore.rate_limit_policy_generation_get(&opctx).await.unwrap(),
             Generation::new()
         );
 
@@ -286,7 +286,7 @@ mod tests {
         {
             // Create a connection
             let conn =
-                datastore.pool_connection_authorized(opctx).await.unwrap();
+                datastore.pool_connection_authorized(&opctx).await.unwrap();
 
             // Verify that the private helper gets the initial generation from the DB
             assert_eq!(get_generation(&conn).await.unwrap(), Generation::new());
@@ -310,7 +310,7 @@ mod tests {
 
         // Verify that the public method sees the new generation
         assert_eq!(
-            datastore.rate_limit_policy_generation_get(opctx).await.unwrap(),
+            datastore.rate_limit_policy_generation_get(&opctx).await.unwrap(),
             next_generation
         );
 
@@ -321,8 +321,8 @@ mod tests {
     #[tokio::test]
     async fn test_rate_limit_policy_list() {
         let logctx = dev::test_setup_log("test_rate_limit_policy_list");
-        let db = TestDatabase::new_with_datastore(&logctx.log).await;
-        let (opctx, datastore) = (db.opctx(), db.datastore());
+        let (db, datastore, opctx, _) =
+            raw_datastore_with_auth(&logctx.log).await;
 
         // verify that the list of policies is empty
         let id_page = PaginatedBy::Id(DataPageParams {
@@ -331,15 +331,19 @@ mod tests {
             limit: NonZeroU32::new(10).unwrap(),
         });
         let policies = datastore
-            .rate_limit_policy_list(opctx, &id_page, RateLimitPolicyFilter::All)
+            .rate_limit_policy_list(
+                &opctx,
+                &id_page,
+                RateLimitPolicyFilter::All,
+            )
             .await
             .unwrap();
         assert!(policies.is_empty());
 
         // create an enabled, non-deleted policy
         insert_rate_limit_policy(
-            datastore,
-            opctx,
+            &datastore,
+            &opctx,
             "00000000-0000-0000-0000-000000000001".parse().unwrap(),
             "alpha",
             true,
@@ -349,8 +353,8 @@ mod tests {
 
         // create an disabled, non-deleted policy
         insert_rate_limit_policy(
-            datastore,
-            opctx,
+            &datastore,
+            &opctx,
             "00000000-0000-0000-0000-000000000002".parse().unwrap(),
             "beta",
             false,
@@ -360,8 +364,8 @@ mod tests {
 
         // create an enabled, deleted policy
         insert_rate_limit_policy(
-            datastore,
-            opctx,
+            &datastore,
+            &opctx,
             "00000000-0000-0000-0000-000000000003".parse().unwrap(),
             "gamma",
             true,
@@ -371,8 +375,8 @@ mod tests {
 
         // create another enabled, non-deleted policy
         insert_rate_limit_policy(
-            datastore,
-            opctx,
+            &datastore,
+            &opctx,
             "00000000-0000-0000-0000-000000000004".parse().unwrap(),
             "delta",
             true,
@@ -388,7 +392,7 @@ mod tests {
         });
         let policies = datastore
             .rate_limit_policy_list(
-                opctx,
+                &opctx,
                 &first_name_page,
                 RateLimitPolicyFilter::All,
             )
@@ -405,7 +409,7 @@ mod tests {
         });
         let policies = datastore
             .rate_limit_policy_list(
-                opctx,
+                &opctx,
                 &second_name_page,
                 RateLimitPolicyFilter::All,
             )
@@ -416,7 +420,7 @@ mod tests {
         // fetch all enabled policies
         let policies = datastore
             .rate_limit_policy_list(
-                opctx,
+                &opctx,
                 &id_page,
                 RateLimitPolicyFilter::EnabledOnly,
             )
@@ -428,21 +432,42 @@ mod tests {
         logctx.cleanup_successful();
     }
 
-    // Builtin data loading happens during Nexus startup as the internal db-init
-    // actor. So, we use the same background OpContext for testing
-    // load_builtin_rate_limit_policies() because it authorizes Modify on
-    // authz::DATABASE, which the normal test-privileged user is not allowed to
-    // do.
-    fn db_init_opctx(
+    fn background_opctx(
         log: &slog::Logger,
         datastore: &Arc<DataStore>,
+        authn_ctx: authn::Context,
     ) -> OpContext {
         OpContext::for_background(
             log.clone(),
             Arc::new(authz::Authz::new(log)),
-            authn::Context::internal_db_init(),
+            authn_ctx,
             Arc::clone(datastore) as Arc<dyn nexus_auth::storage::Storage>,
         )
+    }
+
+    // Tests in this file expect an empty rate_limit_policy table, so we use
+    // new_with_raw_datastore to avoid loading built-in data. We load only the
+    // built-in auth data needed to authorize the methods under test. We also
+    // return both an internal-read OpContext for the two read methods and a
+    // db-init OpContext for load_builtin_rate_limit_policies, which authorizes
+    // Modify on authz::DATABASE.
+    async fn raw_datastore_with_auth(
+        log: &slog::Logger,
+    ) -> (TestDatabase, Arc<DataStore>, OpContext, OpContext) {
+        let db = TestDatabase::new_with_raw_datastore(log).await;
+        let datastore = db.datastore().clone();
+        let db_init_opctx = background_opctx(
+            log,
+            &datastore,
+            authn::Context::internal_db_init(),
+        );
+
+        datastore.load_builtin_users(&db_init_opctx).await.unwrap();
+        datastore.load_builtin_role_asgns(&db_init_opctx).await.unwrap();
+
+        let opctx =
+            background_opctx(log, &datastore, authn::Context::internal_read());
+        (db, datastore, opctx, db_init_opctx)
     }
 
     #[tokio::test]
@@ -451,13 +476,12 @@ mod tests {
 
         let logctx =
             dev::test_setup_log("test_load_builtin_rate_limit_policies");
-        let db = TestDatabase::new_with_datastore(&logctx.log).await;
-        let (opctx, datastore) = (db.opctx(), db.datastore());
-        let db_init_opctx = db_init_opctx(&logctx.log, datastore);
+        let (db, datastore, opctx, db_init_opctx) =
+            raw_datastore_with_auth(&logctx.log).await;
 
         // check that we're at the initial generation
         assert_eq!(
-            datastore.rate_limit_policy_generation_get(opctx).await.unwrap(),
+            datastore.rate_limit_policy_generation_get(&opctx).await.unwrap(),
             Generation::new()
         );
 
@@ -470,7 +494,7 @@ mod tests {
         assert!(
             datastore
                 .rate_limit_policy_list(
-                    opctx,
+                    &opctx,
                     &id_page,
                     RateLimitPolicyFilter::All,
                 )
@@ -488,13 +512,17 @@ mod tests {
         // check that the DB is on the next generation
         let expected_generation = Generation::new().next();
         assert_eq!(
-            datastore.rate_limit_policy_generation_get(opctx).await.unwrap(),
+            datastore.rate_limit_policy_generation_get(&opctx).await.unwrap(),
             expected_generation
         );
 
         // check that the database has the builtin policies now
         let policies = datastore
-            .rate_limit_policy_list(opctx, &id_page, RateLimitPolicyFilter::All)
+            .rate_limit_policy_list(
+                &opctx,
+                &id_page,
+                RateLimitPolicyFilter::All,
+            )
             .await
             .unwrap();
         assert_eq!(
@@ -510,13 +538,17 @@ mod tests {
 
         // verify that the generation didn't change since nothing new was inserted
         assert_eq!(
-            datastore.rate_limit_policy_generation_get(opctx).await.unwrap(),
+            datastore.rate_limit_policy_generation_get(&opctx).await.unwrap(),
             expected_generation
         );
 
         // check that there are no new policies
         let policies_after_second_load = datastore
-            .rate_limit_policy_list(opctx, &id_page, RateLimitPolicyFilter::All)
+            .rate_limit_policy_list(
+                &opctx,
+                &id_page,
+                RateLimitPolicyFilter::All,
+            )
             .await
             .unwrap();
         assert_eq!(

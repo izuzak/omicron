@@ -236,6 +236,24 @@ impl Populator for PopulateBuiltinVpcs {
     }
 }
 
+/// Populates the built-in rate limit policies
+#[derive(Debug)]
+struct PopulateBuiltinRateLimitPolicies;
+impl Populator for PopulateBuiltinRateLimitPolicies {
+    fn populate<'a, 'b>(
+        &self,
+        opctx: &'a OpContext,
+        datastore: &'a DataStore,
+        _args: &'a PopulateArgs,
+    ) -> BoxFuture<'b, Result<(), Error>>
+    where
+        'a: 'b,
+    {
+        async { datastore.load_builtin_rate_limit_policies(opctx).await }
+            .boxed()
+    }
+}
+
 /// Populates the "test-privileged" and "test-unprivileged" silo users
 // TODO-security Once we have a proper bootstrapping mechanism, we should not
 // need to do this.  But right now, if you don't do this, then there will be no
@@ -317,12 +335,13 @@ impl Populator for PopulateRack {
     }
 }
 
-const ALL_POPULATORS: [&dyn Populator; 9] = [
+const ALL_POPULATORS: [&dyn Populator; 10] = [
     &PopulateBuiltinUsers {},
     &PopulateBuiltinRoleAssignments {},
     &PopulateBuiltinSilos {},
     &PopulateBuiltinProjects {},
     &PopulateBuiltinVpcs {},
+    &PopulateBuiltinRateLimitPolicies {},
     &PopulateSiloUsers {},
     &PopulateSiloUserRoleAssignments {},
     &PopulateFleet {},
