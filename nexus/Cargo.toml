@@ -185,6 +185,7 @@ httptest.workspace = true
 hubtools.workspace = true
 hyper-rustls.workspace = true
 nexus-client.workspace = true
+nexus-db-fixed-data.workspace = true
 nexus-db-queries = { workspace = true, features = ["testing"] }
 nexus-fm = { workspace = true, features = ["testing"] }
 nexus-lockstep-client.workspace = true

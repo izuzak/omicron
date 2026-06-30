@@ -2,8 +2,12 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
+use anyhow::Context;
 use dropshot::ClientErrorStatusCode;
 use dropshot::HttpError;
+use nexus_db_model as db_model;
+use nexus_types::external_api::rate_limit as external_rate_limit;
+use nexus_types::identity::Resource;
 use std::borrow::Borrow;
 use std::collections::HashMap;
 use std::sync::Mutex;
@@ -203,9 +207,10 @@ pub(crate) fn rate_limit_error(exceeded: RateLimitExceeded) -> HttpError {
 // global matcher which matches all requests (e.g. for a global rate limit).
 // This list could be expanded to cover more things, like identity, resource
 // groups, silos, etc.
+#[derive(Debug, PartialEq, Eq)]
 pub(crate) enum MatchPredicate {
     Endpoint {
-        any_of: Vec<&'static str>,
+        any_of: Vec<String>,
     },
     #[allow(dead_code)]
     HttpMethod {
@@ -219,8 +224,9 @@ pub(crate) enum MatchPredicate {
 // string literal piece (not based on the request), the endpoint id, and the
 // http method. More pieces can be added in the future, e.g. identity, resource
 // group, etc.
+#[derive(Debug, PartialEq, Eq)]
 pub(crate) enum RateLimitKeyPart {
-    Literal(&'static str),
+    Literal(String),
     Endpoint,
     #[allow(dead_code)]
     HttpMethod,
@@ -228,6 +234,7 @@ pub(crate) enum RateLimitKeyPart {
 
 // How a rate limit policy defines the quota for a specific rate limit key.
 // In other words, this defines the X requests per Y time window limit.
+#[derive(Debug, PartialEq, Eq)]
 pub(crate) struct RateLimitQuota {
     limit: usize,
     window: Duration,
@@ -248,8 +255,9 @@ impl RateLimitQuota {
 // The check_for method uses these pieces to determine if the policy applies to
 // a given request context and, if so, returns the corresponding RateLimitCheck
 // that can be used to check against the RateLimiter.
+#[derive(Debug, PartialEq, Eq)]
 pub(crate) struct RateLimitPolicy {
-    id: &'static str,
+    id: String,
     matchers: Vec<MatchPredicate>,
     quota: RateLimitQuota,
     key_parts: Vec<RateLimitKeyPart>,
@@ -257,16 +265,16 @@ pub(crate) struct RateLimitPolicy {
 
 impl RateLimitPolicy {
     pub(crate) fn new(
-        id: &'static str,
+        id: impl Into<String>,
         matchers: Vec<MatchPredicate>,
         quota: RateLimitQuota,
         key_parts: Vec<RateLimitKeyPart>,
     ) -> Self {
-        Self { id, matchers, quota, key_parts }
+        Self { id: id.into(), matchers, quota, key_parts }
     }
 
-    pub(crate) fn id(&self) -> &'static str {
-        self.id
+    pub(crate) fn id(&self) -> &str {
+        &self.id
     }
 
     // create the checkfor this policy and a request based on its context
@@ -299,7 +307,7 @@ impl RateLimitPolicy {
             .key_parts
             .iter()
             .map(|part| match part {
-                RateLimitKeyPart::Literal(value) => value.to_string(),
+                RateLimitKeyPart::Literal(value) => value.clone(),
                 RateLimitKeyPart::Endpoint => ctx.endpoint.clone(),
                 RateLimitKeyPart::HttpMethod => ctx.method.as_str().to_string(),
             })
@@ -312,6 +320,147 @@ impl RateLimitPolicy {
             self.quota.window,
         ))
     }
+}
+
+#[derive(Debug, thiserror::Error)]
+enum RateLimitPolicyCompileError {
+    #[error("invalid HTTP method {method:?}: {source}")]
+    InvalidHttpMethod { method: String, source: http::method::InvalidMethod },
+    #[error(
+        "invalid quota_limit {value} -- must be greater than 0 and fit in usize"
+    )]
+    InvalidQuotaLimit { value: i64 },
+    #[error("invalid quota_window_seconds {value} -- must be greater than 0")]
+    InvalidQuotaWindow { value: i64 },
+}
+
+impl TryFrom<&db_model::RateLimitPolicy> for RateLimitPolicy {
+    type Error = anyhow::Error;
+
+    // compile/convert a db rate limit policy model into the internal object
+    // used for tracking/enforcing rate limits for API endpoints. we reuse some
+    // of the api types (e.g. for matchers and key parts) for deserializing
+    // json and converting to the required struct. in the future, we might do
+    // different things, e.g. deserializing in the db model type or exposing
+    // typed data via db model methods, to simplify this conversion.
+    fn try_from(
+        policy: &db_model::RateLimitPolicy,
+    ) -> Result<Self, Self::Error> {
+        let policy_name = policy.name().to_string();
+
+        // convert matchers from json
+        let matchers = serde_json::from_value::<
+            Vec<external_rate_limit::RateLimitMatcher>,
+        >(policy.matchers.clone())
+        .with_context(|| {
+            format!(
+                "couldn't deserialize matchers for rate limit policy {policy_name}"
+            )
+        })?
+        .into_iter()
+        .map(compile_matcher)
+        .collect::<Result<Vec<_>, _>>()
+        .with_context(|| {
+            format!("couldn't compile rate limit policy {policy_name}")
+        })?;
+
+        // convert key parts from json
+        let key_parts = serde_json::from_value::<
+            Vec<external_rate_limit::RateLimitKeyPart>,
+        >(policy.key_parts.clone())
+        .with_context(|| {
+            format!(
+                "couldn't deserialize key parts for rate limit policy {policy_name}"
+            )
+        })?
+        .into_iter()
+        .map(compile_key_part)
+        .collect();
+
+        // convert quota limit and window duration
+        let quota_limit = compile_quota_limit(policy.quota_limit)
+            .with_context(|| {
+                format!("couldn't compile rate limit policy {policy_name}")
+            })?;
+
+        let quota_window = compile_quota_window(policy.quota_window_seconds)
+            .with_context(|| {
+                format!("couldn't compile rate limit policy {policy_name}")
+            })?;
+
+        // use the name of the policy as the id of the compiled object. the
+        // name is unique so it should be fine. in the future, might switch
+        // it to the uuid id from the db table or include both if both are
+        // useful.
+        Ok(Self::new(
+            policy_name,
+            matchers,
+            RateLimitQuota::new(quota_limit, quota_window),
+            key_parts,
+        ))
+    }
+}
+
+fn compile_matcher(
+    matcher: external_rate_limit::RateLimitMatcher,
+) -> Result<MatchPredicate, RateLimitPolicyCompileError> {
+    match matcher {
+        external_rate_limit::RateLimitMatcher::Endpoint { any_of } => {
+            Ok(MatchPredicate::Endpoint { any_of })
+        }
+        external_rate_limit::RateLimitMatcher::HttpMethod { any_of } => {
+            let any_of = any_of
+                .into_iter()
+                .map(|method| {
+                    method.parse().map_err(|source| {
+                        RateLimitPolicyCompileError::InvalidHttpMethod {
+                            method,
+                            source,
+                        }
+                    })
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(MatchPredicate::HttpMethod { any_of })
+        }
+        external_rate_limit::RateLimitMatcher::Global => {
+            Ok(MatchPredicate::Global)
+        }
+    }
+}
+
+fn compile_key_part(
+    key_part: external_rate_limit::RateLimitKeyPart,
+) -> RateLimitKeyPart {
+    match key_part {
+        external_rate_limit::RateLimitKeyPart::Literal { value } => {
+            RateLimitKeyPart::Literal(value)
+        }
+        external_rate_limit::RateLimitKeyPart::Endpoint => {
+            RateLimitKeyPart::Endpoint
+        }
+        external_rate_limit::RateLimitKeyPart::HttpMethod => {
+            RateLimitKeyPart::HttpMethod
+        }
+    }
+}
+
+fn compile_quota_limit(
+    value: i64,
+) -> Result<usize, RateLimitPolicyCompileError> {
+    if value <= 0 {
+        return Err(RateLimitPolicyCompileError::InvalidQuotaLimit { value });
+    }
+    usize::try_from(value)
+        .map_err(|_| RateLimitPolicyCompileError::InvalidQuotaLimit { value })
+}
+
+fn compile_quota_window(
+    value: i64,
+) -> Result<Duration, RateLimitPolicyCompileError> {
+    if value <= 0 {
+        return Err(RateLimitPolicyCompileError::InvalidQuotaWindow { value });
+    }
+    Ok(Duration::from_secs(value as u64))
 }
 
 // The parts of the request context which are needed by for the matching and
@@ -334,6 +483,9 @@ impl RateLimitRequestContext {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use omicron_common::api::external::IdentityMetadataCreateParams;
+    use serde_json::json;
+    use uuid::Uuid;
 
     #[test]
     fn rate_limiter_independent_keys_do_not_affect_each_other() {
@@ -607,12 +759,14 @@ mod tests {
         let policy = RateLimitPolicy::new(
             "test_policy",
             vec![
-                MatchPredicate::Endpoint { any_of: vec!["some_endpoint"] },
+                MatchPredicate::Endpoint {
+                    any_of: vec!["some_endpoint".to_string()],
+                },
                 MatchPredicate::HttpMethod { any_of: vec![http::Method::GET] },
             ],
             RateLimitQuota::new(123, Duration::from_secs(60)),
             vec![
-                RateLimitKeyPart::Literal("endpoint"),
+                RateLimitKeyPart::Literal("endpoint".to_string()),
                 RateLimitKeyPart::Endpoint,
                 RateLimitKeyPart::HttpMethod,
             ],
@@ -647,7 +801,10 @@ mod tests {
         let policy = RateLimitPolicy::new(
             "test_policy",
             vec![MatchPredicate::Endpoint {
-                any_of: vec!["some_endpoint_1", "some_endpoint_2"],
+                any_of: vec![
+                    "some_endpoint_1".to_string(),
+                    "some_endpoint_2".to_string(),
+                ],
             }],
             RateLimitQuota::new(10, Duration::from_secs(60)),
             vec![RateLimitKeyPart::Endpoint],
@@ -665,7 +822,7 @@ mod tests {
             "global-policy",
             vec![MatchPredicate::Global],
             RateLimitQuota::new(10, Duration::from_secs(60)),
-            vec![RateLimitKeyPart::Literal("global")],
+            vec![RateLimitKeyPart::Literal("global".to_string())],
         );
 
         let ctx =
@@ -677,6 +834,261 @@ mod tests {
             RateLimitRequestContext::new("some_endpoint_2", http::Method::POST);
 
         assert!(policy.check_for(&ctx).is_some());
+    }
+
+    #[test]
+    fn db_rate_limit_policy_compiles_to_runtime_policy() {
+        // create some db policy model instance
+        let db_policy = db_policy(
+            "test-policy",
+            123,
+            60,
+            json!([
+                {
+                    "type": "endpoint",
+                    "any_of": ["some_endpoint"],
+                },
+                {
+                    "type": "http_method",
+                    "any_of": ["GET"],
+                },
+            ]),
+            json!([
+                {
+                    "type": "literal",
+                    "value": "endpoint",
+                },
+                {
+                    "type": "endpoint",
+                },
+                {
+                    "type": "http_method",
+                },
+            ]),
+        );
+
+        let policy = RateLimitPolicy::try_from(&db_policy).unwrap();
+
+        assert_eq!(
+            policy,
+            RateLimitPolicy::new(
+                "test-policy",
+                vec![
+                    MatchPredicate::Endpoint {
+                        any_of: vec!["some_endpoint".to_string()],
+                    },
+                    MatchPredicate::HttpMethod {
+                        any_of: vec![http::Method::GET],
+                    },
+                ],
+                RateLimitQuota::new(123, Duration::from_secs(60)),
+                vec![
+                    RateLimitKeyPart::Literal("endpoint".to_string()),
+                    RateLimitKeyPart::Endpoint,
+                    RateLimitKeyPart::HttpMethod,
+                ],
+            )
+        );
+    }
+
+    #[test]
+    fn db_rate_limit_policy_compile_rejects_invalid_matcher_json() {
+        // create an invalid policy which doesn't have the any_of field for the
+        // endpoint variant
+        let db_policy = db_policy(
+            "test-policy",
+            1,
+            60,
+            json!([
+                {
+                    "type": "endpoint",
+                    "not_any_of": ["some_endpoint"],
+                },
+            ]),
+            json!([
+                {
+                    "type": "endpoint",
+                },
+            ]),
+        );
+
+        let error = compile_error(&db_policy);
+        assert_error_chain_contains(
+            &error,
+            "couldn't deserialize matchers for rate limit policy test-policy",
+        );
+    }
+
+    #[test]
+    fn db_rate_limit_policy_compile_rejects_invalid_http_method() {
+        // create an invalid policy which has an unknown http method
+        let db_policy = db_policy(
+            "test-policy",
+            1,
+            60,
+            json!([
+                {
+                    "type": "http_method",
+                    "any_of": ["not a method"],
+                },
+            ]),
+            json!([
+                {
+                    "type": "http_method",
+                },
+            ]),
+        );
+
+        let error = compile_error(&db_policy);
+        assert_error_chain_contains(
+            &error,
+            "couldn't compile rate limit policy test-policy",
+        );
+        assert_error_chain_contains(&error, "invalid HTTP method");
+    }
+
+    #[test]
+    fn db_rate_limit_policy_compile_rejects_invalid_quotas() {
+        // create an invalid policy which has a 0 quota limit
+        let zero_limit = db_policy(
+            "zero-limit-policy",
+            0,
+            60,
+            json!([{ "type": "global" }]),
+            json!([{ "type": "literal", "value": "global" }]),
+        );
+        let error = compile_error(&zero_limit);
+        assert_error_chain_contains(
+            &error,
+            "couldn't compile rate limit policy zero-limit-policy",
+        );
+        assert_error_chain_contains(&error, "invalid quota_limit 0");
+
+        // create an invalid policy which has a 0 window duration
+        let zero_window = db_policy(
+            "zero-window-policy",
+            1,
+            0,
+            json!([{ "type": "global" }]),
+            json!([{ "type": "literal", "value": "global" }]),
+        );
+        let error = compile_error(&zero_window);
+        assert_error_chain_contains(
+            &error,
+            "couldn't compile rate limit policy zero-window-policy",
+        );
+        assert_error_chain_contains(&error, "invalid quota_window_seconds 0");
+    }
+
+    #[test]
+    fn fixed_data_rate_limit_policies_compile_to_runtime_policies() {
+        use nexus_db_fixed_data::rate_limit_policy::{
+            BUILTIN_RATE_LIMIT_POLICIES, CURRENT_USER_VIEW_POLICY_NAME,
+            GLOBAL_POLICY_NAME, USER_BUILTIN_LIST_POLICY_NAME,
+        };
+
+        // try to convert builtin policies which we use to seed the db
+        let policies = BUILTIN_RATE_LIMIT_POLICIES
+            .iter()
+            .map(RateLimitPolicy::try_from)
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+
+        assert_eq!(policies.len(), 3);
+
+        // verify current_user_view policy
+        let current_user_view = policies
+            .iter()
+            .find(|policy| policy.id() == CURRENT_USER_VIEW_POLICY_NAME)
+            .unwrap();
+        assert_eq!(
+            current_user_view,
+            &RateLimitPolicy::new(
+                CURRENT_USER_VIEW_POLICY_NAME,
+                vec![MatchPredicate::Endpoint {
+                    any_of: vec!["current_user_view".to_string()],
+                }],
+                RateLimitQuota::new(2, Duration::from_secs(3600)),
+                vec![
+                    RateLimitKeyPart::Literal("endpoint".to_string()),
+                    RateLimitKeyPart::Endpoint,
+                ],
+            )
+        );
+
+        // verify user_builtin_list policy
+        let user_builtin_list = policies
+            .iter()
+            .find(|policy| policy.id() == USER_BUILTIN_LIST_POLICY_NAME)
+            .unwrap();
+        assert_eq!(
+            user_builtin_list,
+            &RateLimitPolicy::new(
+                USER_BUILTIN_LIST_POLICY_NAME,
+                vec![MatchPredicate::Endpoint {
+                    any_of: vec!["user_builtin_list".to_string()],
+                }],
+                RateLimitQuota::new(2, Duration::from_secs(3600)),
+                vec![
+                    RateLimitKeyPart::Literal("endpoint".to_string()),
+                    RateLimitKeyPart::Endpoint,
+                ],
+            )
+        );
+
+        // verify global policy
+        let global = policies
+            .iter()
+            .find(|policy| policy.id() == GLOBAL_POLICY_NAME)
+            .unwrap();
+        assert_eq!(
+            global,
+            &RateLimitPolicy::new(
+                GLOBAL_POLICY_NAME,
+                vec![MatchPredicate::Global],
+                RateLimitQuota::new(2, Duration::from_secs(3600)),
+                vec![RateLimitKeyPart::Literal("global".to_string())],
+            )
+        );
+    }
+
+    // helper to create an instance of the db's rate limit policy
+    fn db_policy(
+        name: &str,
+        quota_limit: i64,
+        quota_window_seconds: i64,
+        matchers: serde_json::Value,
+        key_parts: serde_json::Value,
+    ) -> db_model::RateLimitPolicy {
+        db_model::RateLimitPolicy::new_with_id(
+            Uuid::new_v4(),
+            IdentityMetadataCreateParams {
+                name: name.parse().unwrap(),
+                description: format!("test policy {name}"),
+            },
+            true,
+            quota_limit,
+            quota_window_seconds,
+            matchers,
+            key_parts,
+        )
+    }
+
+    // helper for asserting that compiling a rate limit policy errors out
+    fn compile_error(policy: &db_model::RateLimitPolicy) -> anyhow::Error {
+        match RateLimitPolicy::try_from(policy) {
+            Ok(_) => panic!("policy unexpectedly compiled"),
+            Err(error) => error,
+        }
+    }
+
+    // helper to assert that a specific error was raised
+    fn assert_error_chain_contains(error: &anyhow::Error, needle: &str) {
+        let chain = error.chain().map(ToString::to_string).collect::<Vec<_>>();
+        assert!(
+            chain.iter().any(|cause| cause.contains(needle)),
+            "error chain {chain:#?} did not contain {needle:?}",
+        );
     }
 
     fn assert_not_limited(rate_limit_result: RateLimitResult) {

@@ -101,17 +101,6 @@ async fn test_rate_limiting_metrics_are_emitted(
 async fn test_rate_limit_policy_list(cptestctx: &ControlPlaneTestContext) {
     let client = &cptestctx.external_client;
 
-    let response =
-        NexusRequest::object_get(client, "/v1/system/rate-limit-policies?limit=5")
-            .authn_as(AuthnMode::PrivilegedUser)
-            .execute()
-            .await
-            .unwrap();
-
-    let body: serde_json::Value =
-        serde_json::from_slice(response.body.as_ref()).unwrap();
-    eprintln!("{}", serde_json::to_string_pretty(&body).unwrap());
-
     // fetch policies via the API by name (the default)
     let name_collection =
         NexusRequest::iter_collection_authn::<rate_limit::RateLimitPolicy>(

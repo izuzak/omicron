@@ -498,3 +498,21 @@ stored in the database. The API response looks like this:
           "next_page": "eyJ2IjoidjEiLCJwYWdlX3N0YXJ0Ijp7InNvcnRfYnkiOiJuYW1lX2FzY2VuZGluZyIsImxhc3Rfc2VlbiI6InVzZXItYnVpbHRpbi1saXN0LXBvbGljeSJ9fQ=="
         }
         ```
+      - Next, added a way to go from the db model types to internal types used
+        for rate limiting.
+          - I'm not too happy with the current solution in the sense that i feel
+            this could be simpler. E.g. converting happens with the help of the
+            API types since those already define how to deserialize json fields
+            into types. So, perhaps move this deserialization into the db model
+            type would reduce complexity. There's also some differences between
+            other fiels which are likely unnecessary. E.g. the quota limit is a
+            usize in the internal rate limit types, while an i64 in the db
+            model.
+          - Creating the internal rate limiting types from db data also needed
+            a switch to support non-&'static str strings for types which use
+            strings. Previously, internal rate limiting types were always
+            loaded from hardcoded values, so using &'static str strings worked
+            fine. So now I needed to switch to something that supports String.
+            I switched everything to String for simplicity, but there are
+            other options for the future, e.g. using Cow or a trait-bound
+            dynamic type.

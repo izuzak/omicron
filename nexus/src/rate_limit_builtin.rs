@@ -19,8 +19,9 @@ const DEFAULT_LIMIT: usize = 2;
 const DEFAULT_WINDOW: Duration = Duration::from_secs(3600);
 
 // These are built in policies for rate limiting, i.e. policies defined by
-// oxide. Later, these will become the initial seeds for a DB table containing
-// rate limit policies.
+// oxide. These are also mirrored in db-fixed-data/src/rate_limit_policy.rs
+// and will later be removed once rate limit enforcement starts using policies
+// from the database. For now they still exist.
 static BUILTIN_RATE_LIMIT_POLICIES: LazyLock<Vec<RateLimitPolicy>> =
     LazyLock::new(|| {
         vec![
@@ -28,11 +29,11 @@ static BUILTIN_RATE_LIMIT_POLICIES: LazyLock<Vec<RateLimitPolicy>> =
             RateLimitPolicy::new(
                 CURRENT_USER_VIEW_POLICY_ID,
                 vec![MatchPredicate::Endpoint {
-                    any_of: vec![CURRENT_USER_VIEW_OPERATION_ID],
+                    any_of: vec![CURRENT_USER_VIEW_OPERATION_ID.to_string()],
                 }],
                 RateLimitQuota::new(DEFAULT_LIMIT, DEFAULT_WINDOW),
                 vec![
-                    RateLimitKeyPart::Literal("endpoint"),
+                    RateLimitKeyPart::Literal("endpoint".to_string()),
                     RateLimitKeyPart::Endpoint,
                 ],
             ),
@@ -40,11 +41,11 @@ static BUILTIN_RATE_LIMIT_POLICIES: LazyLock<Vec<RateLimitPolicy>> =
             RateLimitPolicy::new(
                 USER_BUILTIN_LIST_POLICY_ID,
                 vec![MatchPredicate::Endpoint {
-                    any_of: vec![USER_BUILTIN_LIST_OPERATION_ID],
+                    any_of: vec![USER_BUILTIN_LIST_OPERATION_ID.to_string()],
                 }],
                 RateLimitQuota::new(DEFAULT_LIMIT, DEFAULT_WINDOW),
                 vec![
-                    RateLimitKeyPart::Literal("endpoint"),
+                    RateLimitKeyPart::Literal("endpoint".to_string()),
                     RateLimitKeyPart::Endpoint,
                 ],
             ),
@@ -53,7 +54,7 @@ static BUILTIN_RATE_LIMIT_POLICIES: LazyLock<Vec<RateLimitPolicy>> =
                 GLOBAL_POLICY_ID,
                 vec![MatchPredicate::Global],
                 RateLimitQuota::new(DEFAULT_LIMIT, DEFAULT_WINDOW),
-                vec![RateLimitKeyPart::Literal("global")],
+                vec![RateLimitKeyPart::Literal("global".to_string())],
             ),
         ]
     });

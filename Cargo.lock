@@ -8729,6 +8729,7 @@ dependencies = [
  "nexus-background-task-interface",
  "nexus-client",
  "nexus-config",
+ "nexus-db-fixed-data",
  "nexus-db-lookup",
  "nexus-db-model",
  "nexus-db-queries",
