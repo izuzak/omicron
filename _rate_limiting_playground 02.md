@@ -42,8 +42,8 @@
           Luckily, there is `raw_datastore_with_auth` for getting an empty DB
           and `OpContext::for_background` for creating `OpContext`s. Hooray!
       - Fifth, use the DB table as the source of truth for the API endpoint for
-        listing rate limit policies. Some things I didn't do in this step and I
-        will do next:
+        listing rate limit policies. Some things I didn't do in this step and
+        I will do next:
         - Checking/incrementing rate limits during request processing still uses
           the "old" in-memory rate limit policies.
         - Pagination is not implemented on the endpoint for listing policies,
@@ -54,29 +54,94 @@
       - Next, added pagination to the endpoint and made the API response include
         the fields from the DB table. The API response looks like this now:
      
-        ```json { "items": [ { "description": "Built-in rate-limit policy for
-        current-user view requests", "enabled": true, "id":
-        "001de000-726c-4000-8000-000000000000", "key_parts": [ { "type":
-        "literal", "value": "endpoint" }, { "type": "endpoint" } ], "matchers":
-        [ { "any_of": [ "current_user_view" ], "type": "endpoint" } ], "name":
-        "current-user-view-policy", "quota": { "limit": 2, "window_seconds":
-        3600 }, "time_created": "2026-06-29T22:07:57.866497Z", "time_modified":
-        "2026-06-29T22:07:57.866497Z" }, { "description": "Built-in global
-        rate-limit policy", "enabled": true, "id":
-        "001de000-726c-4000-8000-000000000002", "key_parts": [ { "type":
-        "literal", "value": "global" } ], "matchers": [ { "type": "global" } ],
-        "name": "global-policy", "quota": { "limit": 2, "window_seconds": 3600
-        }, "time_created": "2026-06-29T22:07:57.866501Z", "time_modified":
-        "2026-06-29T22:07:57.866501Z" }, { "description": "Built-in rate-limit
-        policy for user-builtin list requests", "enabled": true, "id":
-        "001de000-726c-4000-8000-000000000001", "key_parts": [ { "type":
-        "literal", "value": "endpoint" }, { "type": "endpoint" } ], "matchers":
-        [ { "any_of": [ "user_builtin_list" ], "type": "endpoint" } ], "name":
-        "user-builtin-list-policy", "quota": { "limit": 2, "window_seconds":
-        3600 }, "time_created": "2026-06-29T22:07:57.866500Z", "time_modified":
-        "2026-06-29T22:07:57.866500Z" } ], "next_page":
-        "eyJ2IjoidjEiLCJwYWdlX3N0YXJ0Ijp7InNvcnRfYnkiOiJuYW1lX2FzY2VuZGluZyIsImxhc3Rfc2VlbiI6InVzZXItYnVpbHRpbi1saXN0LXBvbGljeSJ9fQ=="
-        } ```
+        ```json
+        {
+          "items": [
+            {
+              "description": "Built-in rate-limit policy for current-user view requests",
+              "enabled": true,
+              "id": "001de000-726c-4000-8000-000000000000",
+              "key_parts": [
+                {
+                  "type": "literal",
+                  "value": "endpoint"
+                },
+                {
+                  "type": "endpoint"
+                }
+              ],
+              "matchers": [
+                {
+                  "any_of": [
+                    "current_user_view"
+                  ],
+                  "type": "endpoint"
+                }
+              ],
+              "name": "current-user-view-policy",
+              "quota": {
+                "limit": 2,
+                "window_seconds": 3600
+              },
+              "time_created": "2026-06-29T22:07:57.866497Z",
+              "time_modified": "2026-06-29T22:07:57.866497Z"
+            },
+            {
+              "description": "Built-in global rate-limit policy",
+              "enabled": true,
+              "id": "001de000-726c-4000-8000-000000000002",
+              "key_parts": [
+                {
+                  "type": "literal",
+                  "value": "global"
+                }
+              ],
+              "matchers": [
+                {
+                  "type": "global"
+                }
+              ],
+              "name": "global-policy",
+              "quota": {
+                "limit": 2,
+                "window_seconds": 3600
+              },
+              "time_created": "2026-06-29T22:07:57.866501Z",
+              "time_modified": "2026-06-29T22:07:57.866501Z"
+            },
+            {
+              "description": "Built-in rate-limit policy for user-builtin list requests",
+              "enabled": true,
+              "id": "001de000-726c-4000-8000-000000000001",
+              "key_parts": [
+                {
+                  "type": "literal",
+                  "value": "endpoint"
+                },
+                {
+                  "type": "endpoint"
+                }
+              ],
+              "matchers": [
+                {
+                  "any_of": [
+                    "user_builtin_list"
+                  ],
+                  "type": "endpoint"
+                }
+              ],
+              "name": "user-builtin-list-policy",
+              "quota": {
+                "limit": 2,
+                "window_seconds": 3600
+              },
+              "time_created": "2026-06-29T22:07:57.866500Z",
+              "time_modified": "2026-06-29T22:07:57.866500Z"
+            }
+          ],
+          "next_page": "eyJ2IjoidjEiLCJwYWdlX3N0YXJ0Ijp7InNvcnRfYnkiOiJuYW1lX2FzY2VuZGluZyIsImxhc3Rfc2VlbiI6InVzZXItYnVpbHRpbi1saXN0LXBvbGljeSJ9fQ=="
+        }
+        ```
       - Next, added a way to go from the db model types to internal types used
         for rate limiting.
           - I'm not too happy with the current solution in the sense that i feel
@@ -87,13 +152,14 @@
             other fiels which are likely unnecessary. E.g. the quota limit is a
             usize in the internal rate limit types, while an i64 in the db
             model.
-          - Creating the internal rate limiting types from db data also needed a
-            switch to support non-&'static str strings for types which use
-            strings. Previously, internal rate limiting types were always loaded
-            from hardcoded values, so using &'static str strings worked fine. So
-            now I needed to switch to something that supports String. I switched
-            everything to String for simplicity, but there are other options for
-            the future, e.g. using Cow or a trait-bound dynamic type.
+          - Creating the internal rate limiting types from db data also needed
+            a switch to support non-&'static str strings for types which use
+            strings. Previously, internal rate limiting types were always
+            loaded from hardcoded values, so using &'static str strings worked
+            fine. So now I needed to switch to something that supports String.
+            I switched everything to String for simplicity, but there are
+            other options for the future, e.g. using Cow or a trait-bound
+            dynamic type.
       - Next, extended the RateLimitManager to hold the current set of rate
         limit policies.
           - The idea is: the DB is the source of truth for the policies and
