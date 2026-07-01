@@ -3,7 +3,11 @@
 
 //! Shared state used by API request handlers
 use super::Nexus;
-use crate::rate_limit::{RateLimitCheck, RateLimitExceeded, RateLimiter};
+use crate::rate_limit::{
+    RateLimitCheck, RateLimitExceeded, RateLimitKey, RateLimitPolicy,
+    RateLimitRequestContext, RateLimiter,
+};
+use crate::rate_limit_builtin::builtin_rate_limit_policies;
 use crate::rate_limit_metrics::RateLimitMetrics;
 use crate::saga_interface::SagaContext;
 use async_trait::async_trait;
@@ -30,9 +34,11 @@ use oximeter::types::ProducerRegistry;
 use oximeter_instruments::http::{HttpService, LatencyTracker};
 use slog::Logger;
 use slog_error_chain::InlineErrorChain;
+use std::collections::HashMap;
 use std::env;
 use std::future::Future;
 use std::sync::Arc;
+use std::sync::RwLock;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
 use uuid::Uuid;
@@ -123,9 +129,20 @@ pub struct ServerContext {
     pub(crate) rate_limiter: RateLimitManager,
 }
 
+// The rate limit manager holds the rate limit policies (loaded from the DB in
+// the future) and the rate limiter state (all the counters). It also tracks
+// whether rate limits are enabled and owns the metrics producer used to record
+// rate-limited requests.
+//
+// Policies are behind an RwLock because they are a) read on the request path
+// and b) will be replaced by a background task when the policies in the DB
+// change (future work). The work to be done while holding the lock is fairly
+// small so I think it's okay as a first step. Some kind of Arc-based approach
+// with cloning and swapping might make sense later.
 pub(crate) struct RateLimitManager {
     enabled: AtomicBool,
     limiter: RateLimiter,
+    policies: RwLock<Vec<RateLimitPolicy>>,
     metrics: RateLimitMetrics,
 }
 
@@ -134,12 +151,60 @@ impl RateLimitManager {
         Self {
             enabled: AtomicBool::new(enabled),
             limiter: RateLimiter::new(),
+            policies: RwLock::new(builtin_rate_limit_policies().to_vec()),
             metrics: RateLimitMetrics::new(nexus_id, "nexus-external"),
         }
     }
 
     pub(crate) fn metrics_producer(&self) -> RateLimitMetrics {
         self.metrics.clone()
+    }
+
+    // Construct checks from the currently loaded policies, run the limiter,
+    // and record metrics for any limits that are hit.
+    pub(crate) fn check_request(
+        &self,
+        ctx: &RateLimitRequestContext,
+    ) -> Result<(), RateLimitExceeded> {
+        // this is a helper hashmap to be able to map limited keys back to the
+        // policy which created the check for that key. we need this for limited
+        // request and emitting metrics
+        let mut key_policies = HashMap::<RateLimitKey, String>::new();
+        let checks = {
+            // acquire read lock while we're reading policies to create checks
+            let policies = self.policies.read().unwrap();
+            policies
+                .iter()
+                .filter_map(|policy| {
+                    let check = policy.check_for(ctx);
+
+                    if let Some(check) = check {
+                        key_policies.insert(
+                            check.key().clone(),
+                            policy.id().to_string(),
+                        );
+                        Some(check)
+                    } else {
+                        None
+                    }
+                })
+                .collect::<Vec<_>>()
+        };
+
+        match self.check_and_increment(&checks) {
+            Ok(()) => Ok(()),
+            Err(exceeded) => {
+                // record limited request with producer for each exceeded policy
+                for exceeded_key in &exceeded.exceeded {
+                    if let Some(policy_id) = key_policies.get(&exceeded_key.key)
+                    {
+                        self.record_limited_request(policy_id, &ctx.endpoint);
+                    }
+                }
+
+                Err(exceeded)
+            }
+        }
     }
 
     // Run limiter checks if rate limiting is enabled, otherwise returns Ok

@@ -9,11 +9,7 @@ use crate::app::SetTargetReleaseIntent;
 use crate::app::external_endpoints::authority_for_request;
 use crate::app::support_bundles::SupportBundleQueryType;
 use crate::context::{ApiContext, audit_and_time};
-use crate::rate_limit::{
-    RateLimitCheck, RateLimitKey, RateLimitPolicy, RateLimitRequestContext,
-    rate_limit_error,
-};
-use crate::rate_limit_builtin::builtin_rate_limit_policies;
+use crate::rate_limit::{RateLimitRequestContext, rate_limit_error};
 use dropshot::Body;
 use dropshot::EmptyScanParams;
 use dropshot::Header;
@@ -53,7 +49,6 @@ use nexus_types::external_api::{
     snapshot, ssh_key, subnet_pool, support_bundle, switch, system, timeseries,
     update, user, vpc,
 };
-use std::collections::HashMap;
 // Type imports for API implementations (per RFD 619)
 use nexus_types::external_api::bfd::BfdStatus;
 use nexus_types::external_api::certificate::Certificate;
@@ -136,13 +131,6 @@ pub(crate) fn external_api() -> NexusApiDescription {
         .expect("registered entrypoints")
 }
 
-// Helper for returning the in-memory policies used for enforcing rate limits
-// during request processing. The endpoint for listing rate limits reads
-// policies from the DB.
-fn rate_limit_policies() -> &'static [RateLimitPolicy] {
-    builtin_rate_limit_policies()
-}
-
 // helper for converting DB rate limiting structures into public structures used
 // in API responses
 fn rate_limit_policy_to_view(
@@ -189,12 +177,8 @@ fn rate_limit_policy_to_view(
     })
 }
 
-// Helper which:
-//   1. fetches policies,
-//   2. determines the checks that apply to a request based on those policies,
-//   3. uses those checks to verify limits,
-//   4. records hitting any limits with metrics produces,
-//   5. convert to a HttpError in case of hitting any limits.
+// Helper that delegates to RateLimitManager and converts any limit hit into an
+// HTTP error
 fn check_rate_limits(
     rqctx: &RequestContext<ApiContext>,
 ) -> Result<(), HttpError> {
@@ -203,47 +187,12 @@ fn check_rate_limits(
         rqctx.request.method().clone(),
     );
 
-    // this is a helper hashmap to be able to map limited keys back to the
-    // policy which created the check for that key. we need this for limited
-    // request and emitting metrics
-    let mut key_policies = HashMap::<RateLimitKey, &RateLimitPolicy>::new();
-
-    let checks = rate_limit_policies()
-        .iter()
-        .filter_map(|policy| {
-            let check = policy.check_for(&rate_limit_rqctx);
-
-            if let Some(check) = check {
-                key_policies.insert(check.key().clone(), policy);
-                Some(check)
-            } else {
-                None
-            }
-        })
-        .collect::<Vec<RateLimitCheck>>();
-
     let rate_limit_result =
-        rqctx.context().context.rate_limiter.check_and_increment(&checks);
+        rqctx.context().context.rate_limiter.check_request(&rate_limit_rqctx);
 
     match rate_limit_result {
         Ok(()) => Ok(()),
-        Err(exceeded) => {
-            // record limited request with producer for each exceeded policy
-            for exceeded_key in &exceeded.exceeded {
-                if let Some(policy) = key_policies.get(&exceeded_key.key) {
-                    rqctx
-                        .context()
-                        .context
-                        .rate_limiter
-                        .record_limited_request(
-                            policy.id(),
-                            &rqctx.endpoint.operation_id,
-                        );
-                }
-            }
-
-            Err(rate_limit_error(exceeded))
-        }
+        Err(exceeded) => Err(rate_limit_error(exceeded)),
     }
 }
 

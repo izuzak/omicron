@@ -207,7 +207,7 @@ pub(crate) fn rate_limit_error(exceeded: RateLimitExceeded) -> HttpError {
 // global matcher which matches all requests (e.g. for a global rate limit).
 // This list could be expanded to cover more things, like identity, resource
 // groups, silos, etc.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum MatchPredicate {
     Endpoint {
         any_of: Vec<String>,
@@ -224,7 +224,7 @@ pub(crate) enum MatchPredicate {
 // string literal piece (not based on the request), the endpoint id, and the
 // http method. More pieces can be added in the future, e.g. identity, resource
 // group, etc.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum RateLimitKeyPart {
     Literal(String),
     Endpoint,
@@ -234,7 +234,7 @@ pub(crate) enum RateLimitKeyPart {
 
 // How a rate limit policy defines the quota for a specific rate limit key.
 // In other words, this defines the X requests per Y time window limit.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct RateLimitQuota {
     limit: usize,
     window: Duration,
@@ -255,7 +255,7 @@ impl RateLimitQuota {
 // The check_for method uses these pieces to determine if the policy applies to
 // a given request context and, if so, returns the corresponding RateLimitCheck
 // that can be used to check against the RateLimiter.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct RateLimitPolicy {
     id: String,
     matchers: Vec<MatchPredicate>,

@@ -516,3 +516,17 @@ stored in the database. The API response looks like this:
             I switched everything to String for simplicity, but there are
             other options for the future, e.g. using Cow or a trait-bound
             dynamic type.
+      - Next, extended the RateLimitManager to hold the current set of rate
+        limit policies.
+          - The idea is: the DB is the source of truth for the policies and
+            nexus instances have their local copy of that truth (this is what
+            the rate limit manager holds). There will be a background task which
+            checks the source of truth to see if policies changed (this is why i
+            added the generation several steps back), and if they did then the
+            task would update the local copy so that it's again up-to-date.
+          - Since the same data (local policies) will be accessed from two paths
+            (reading in request processing path when checking/enforcing rate
+            limits and replacing in background task for refreshing policies), i
+            added a rwlock for accessing the policies. I think it's okay for
+            now, but there might be better ways of doing it, e.g. some Arc-based
+            approach with cloning and swapping.
