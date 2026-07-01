@@ -160,6 +160,11 @@ impl RateLimitManager {
         self.metrics.clone()
     }
 
+    #[allow(dead_code)] // future rate-limit DB loader will consume this
+    pub(crate) fn replace_policies(&self, policies: Vec<RateLimitPolicy>) {
+        *self.policies.write().unwrap() = policies;
+    }
+
     // Construct checks from the currently loaded policies, run the limiter,
     // and record metrics for any limits that are hit.
     pub(crate) fn check_request(
@@ -229,6 +234,74 @@ impl RateLimitManager {
 
     pub(crate) fn set_enabled(&self, enabled: bool) {
         self.enabled.store(enabled, Ordering::Relaxed);
+    }
+}
+
+#[cfg(test)]
+mod rate_limit_manager_tests {
+    use super::*;
+    use crate::rate_limit::{MatchPredicate, RateLimitKeyPart, RateLimitQuota};
+    use std::time::Duration;
+
+    #[test]
+    fn replace_policies_with_empty_set_disables_policy_checks() {
+        let manager = RateLimitManager::new(true, Uuid::new_v4());
+        manager.replace_policies(Vec::new());
+
+        let ctx = RateLimitRequestContext::new(
+            "current_user_view",
+            http::Method::GET,
+        );
+
+        assert!(manager.check_request(&ctx).is_ok());
+        assert!(manager.check_request(&ctx).is_ok());
+        // this third request would normally fail because the built-in limits
+        // allow only two requests
+        assert!(manager.check_request(&ctx).is_ok());
+    }
+
+    #[test]
+    fn replace_policies_manager_uses_new_policies() {
+        let manager = RateLimitManager::new(true, Uuid::new_v4());
+        // replace builtin policies with a new policy
+        manager.replace_policies(vec![RateLimitPolicy::new(
+            "custom-policy",
+            vec![MatchPredicate::Endpoint {
+                any_of: vec!["custom_endpoint".to_string()],
+            }],
+            RateLimitQuota::new(2, Duration::from_secs(3600)),
+            vec![
+                RateLimitKeyPart::Literal("custom".to_string()),
+                RateLimitKeyPart::Endpoint,
+            ],
+        )]);
+
+        let old_builtin_ctx = RateLimitRequestContext::new(
+            "current_user_view",
+            http::Method::GET,
+        );
+        assert!(manager.check_request(&old_builtin_ctx).is_ok());
+        assert!(manager.check_request(&old_builtin_ctx).is_ok());
+        // this third request would normally fail because the builtin limits
+        // (which were replaced with new one) allow only two requests to this
+        // endpoint
+        assert!(manager.check_request(&old_builtin_ctx).is_ok());
+
+        let custom_ctx =
+            RateLimitRequestContext::new("custom_endpoint", http::Method::GET);
+        assert!(manager.check_request(&custom_ctx).is_ok());
+        assert!(manager.check_request(&custom_ctx).is_ok());
+
+        // third request should fail since the quota on the new policy for this
+        // endpoint is 2
+        let exceeded = manager
+            .check_request(&custom_ctx)
+            .expect_err("custom policy should limit the request");
+        assert_eq!(exceeded.exceeded.len(), 1);
+        assert_eq!(
+            exceeded.exceeded[0].key,
+            RateLimitKey::new("custom:custom_endpoint")
+        );
     }
 }
 

@@ -519,11 +519,14 @@ stored in the database. The API response looks like this:
       - Next, extended the RateLimitManager to hold the current set of rate
         limit policies.
           - The idea is: the DB is the source of truth for the policies and
-            nexus instances have their local copy of that truth (this is what
-            the rate limit manager holds). There will be a background task which
-            checks the source of truth to see if policies changed (this is why i
-            added the generation several steps back), and if they did then the
-            task would update the local copy so that it's again up-to-date.
+            nexus instances have their local copy/snapshot of that truth (this
+            is what the rate limit manager holds). There will be a background
+            task which checks the source of truth to see if policies changed
+            (this is why i added the generation several steps back), and if they
+            did then the task would update the local copy so that it's again
+            up-to-date.
+          - Currently, this copy/snapshot is still seeded from the built-in
+            hardcoded policies.
           - Since the same data (local policies) will be accessed from two paths
             (reading in request processing path when checking/enforcing rate
             limits and replacing in background task for refreshing policies), i
