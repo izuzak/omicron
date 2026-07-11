@@ -6,6 +6,7 @@
 
 use crate::app::background::Activator;
 use crate::app::background::BackgroundTask;
+use crate::app::background::TaskName;
 use crate::app::saga::StartSaga;
 use crate::app::sagas::NexusSaga;
 use crate::app::sagas::instance_start;
@@ -25,6 +26,8 @@ use steno::SagaId;
 use uuid::Uuid;
 
 pub struct InstanceReincarnation {
+    name: TaskName,
+    description: String,
     datastore: Arc<DataStore>,
     sagas: Arc<dyn StartSaga>,
     /// The maximum number of concurrently executing instance-start sagas.
@@ -45,6 +48,14 @@ const DEFAULT_MAX_CONCURRENT_REINCARNATIONS: NonZeroU32 =
 type RunningSaga = (Uuid, SagaId, BoxFuture<'static, Result<(), Error>>);
 
 impl BackgroundTask for InstanceReincarnation {
+    fn name(&self) -> &TaskName {
+        &self.name
+    }
+
+    fn description(&self) -> &str {
+        &self.description
+    }
+
     fn activate<'a>(
         &'a mut self,
         opctx: &'a OpContext,
@@ -138,12 +149,16 @@ impl BackgroundTask for InstanceReincarnation {
 
 impl InstanceReincarnation {
     pub(crate) fn new(
+        name: TaskName,
+        description: impl ToString,
         datastore: Arc<DataStore>,
         sagas: Arc<dyn StartSaga>,
         disabled: bool,
         task_multicast_reconciler: Activator,
     ) -> Self {
         Self {
+            name,
+            description: description.to_string(),
             datastore,
             sagas,
             concurrency_limit: DEFAULT_MAX_CONCURRENT_REINCARNATIONS,
@@ -619,6 +634,8 @@ mod test {
         setup_test_project(&cptestctx, &opctx).await;
 
         let mut task = InstanceReincarnation::new(
+            crate::app::background::TaskName::new("test_task"),
+            "test task",
             datastore.clone(),
             nexus.sagas.clone(),
             false,
@@ -672,6 +689,8 @@ mod test {
         setup_test_project(&cptestctx, &opctx).await;
 
         let mut task = InstanceReincarnation::new(
+            crate::app::background::TaskName::new("test_task"),
+            "test task",
             datastore.clone(),
             nexus.sagas.clone(),
             false,
@@ -719,6 +738,8 @@ mod test {
         setup_test_project(&cptestctx, &opctx).await;
 
         let mut task = InstanceReincarnation::new(
+            crate::app::background::TaskName::new("test_task"),
+            "test task",
             datastore.clone(),
             nexus.sagas.clone(),
             false,
@@ -900,6 +921,8 @@ mod test {
         setup_test_project(&cptestctx, &opctx).await;
 
         let mut task = InstanceReincarnation::new(
+            crate::app::background::TaskName::new("test_task"),
+            "test task",
             datastore.clone(),
             nexus.sagas.clone(),
             false,

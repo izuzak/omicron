@@ -5,6 +5,7 @@
 //! Background task for reading inventory for the rack
 
 use crate::app::background::BackgroundTask;
+use crate::app::background::TaskName;
 use anyhow::Context;
 use anyhow::ensure;
 use futures::FutureExt;
@@ -27,6 +28,8 @@ use tokio::sync::watch;
 
 /// Background task that reads inventory for the rack
 pub struct InventoryCollector {
+    name: TaskName,
+    description: String,
     datastore: Arc<DataStore>,
     resolver: internal_dns_resolver::Resolver,
     creator: String,
@@ -38,6 +41,8 @@ pub struct InventoryCollector {
 
 impl InventoryCollector {
     pub fn new(
+        name: TaskName,
+        description: impl ToString,
         opctx: &OpContext,
         datastore: Arc<DataStore>,
         resolver: internal_dns_resolver::Resolver,
@@ -54,6 +59,8 @@ impl InventoryCollector {
             timeout,
         );
         InventoryCollector {
+            name,
+            description: description.to_string(),
             datastore,
             resolver,
             creator: creator.to_owned(),
@@ -70,6 +77,14 @@ impl InventoryCollector {
 }
 
 impl BackgroundTask for InventoryCollector {
+    fn name(&self) -> &TaskName {
+        &self.name
+    }
+
+    fn description(&self) -> &str {
+        &self.description
+    }
+
     fn activate<'a>(
         &'a mut self,
         opctx: &'a OpContext,
@@ -259,6 +274,7 @@ mod test {
     use super::InventoryCollector;
     use crate::app::authz;
     use crate::app::background::BackgroundTask;
+    use crate::app::background::TaskName;
     use nexus_db_model::Generation;
     use nexus_db_model::SledBaseboard;
     use nexus_db_model::SledCpuFamily;
@@ -303,6 +319,8 @@ mod test {
         // allow a backlog to accumulate.
         let nkeep = 3;
         let mut task = InventoryCollector::new(
+            TaskName::new("test_inventory_collection"),
+            "test inventory collection task",
             &opctx,
             datastore.clone(),
             resolver.clone(),
@@ -375,6 +393,8 @@ mod test {
 
         // Create a disabled task and make sure that does nothing.
         let mut task = InventoryCollector::new(
+            TaskName::new("test_inventory_collection_disabled"),
+            "test disabled inventory collection task",
             &opctx,
             datastore.clone(),
             resolver,

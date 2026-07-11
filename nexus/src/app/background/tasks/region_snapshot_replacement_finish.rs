@@ -10,6 +10,7 @@
 
 use crate::app::authn;
 use crate::app::background::BackgroundTask;
+use crate::app::background::TaskName;
 use crate::app::saga::StartSaga;
 use crate::app::sagas;
 use crate::app::sagas::NexusSaga;
@@ -24,13 +25,25 @@ use serde_json::json;
 use std::sync::Arc;
 
 pub struct RegionSnapshotReplacementFinishDetector {
+    name: TaskName,
+    description: String,
     datastore: Arc<DataStore>,
     sagas: Arc<dyn StartSaga>,
 }
 
 impl RegionSnapshotReplacementFinishDetector {
-    pub fn new(datastore: Arc<DataStore>, sagas: Arc<dyn StartSaga>) -> Self {
-        RegionSnapshotReplacementFinishDetector { datastore, sagas }
+    pub fn new(
+        name: TaskName,
+        description: impl ToString,
+        datastore: Arc<DataStore>,
+        sagas: Arc<dyn StartSaga>,
+    ) -> Self {
+        RegionSnapshotReplacementFinishDetector {
+            name,
+            description: description.to_string(),
+            datastore,
+            sagas,
+        }
     }
 
     async fn send_finish_request(
@@ -170,6 +183,14 @@ impl RegionSnapshotReplacementFinishDetector {
 }
 
 impl BackgroundTask for RegionSnapshotReplacementFinishDetector {
+    fn name(&self) -> &TaskName {
+        &self.name
+    }
+
+    fn description(&self) -> &str {
+        &self.description
+    }
+
     fn activate<'a>(
         &'a mut self,
         opctx: &'a OpContext,
@@ -215,6 +236,8 @@ mod test {
         );
 
         let mut task = RegionSnapshotReplacementFinishDetector::new(
+            crate::app::background::TaskName::new("test_task"),
+            "test task",
             datastore.clone(),
             nexus.sagas.clone(),
         );

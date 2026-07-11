@@ -19,6 +19,7 @@
 //! already in this phantom state.
 
 use crate::app::background::BackgroundTask;
+use crate::app::background::TaskName;
 use futures::FutureExt;
 use futures::future::BoxFuture;
 use nexus_db_queries::context::OpContext;
@@ -27,16 +28,34 @@ use serde_json::json;
 use std::sync::Arc;
 
 pub struct PhantomDiskDetector {
+    name: TaskName,
+    description: String,
     datastore: Arc<DataStore>,
 }
 
 impl PhantomDiskDetector {
-    pub fn new(datastore: Arc<DataStore>) -> Self {
-        PhantomDiskDetector { datastore }
+    pub fn new(
+        name: TaskName,
+        description: impl ToString,
+        datastore: Arc<DataStore>,
+    ) -> Self {
+        PhantomDiskDetector {
+            name,
+            description: description.to_string(),
+            datastore,
+        }
     }
 }
 
 impl BackgroundTask for PhantomDiskDetector {
+    fn name(&self) -> &TaskName {
+        &self.name
+    }
+
+    fn description(&self) -> &str {
+        &self.description
+    }
+
     fn activate<'a>(
         &'a mut self,
         opctx: &'a OpContext,

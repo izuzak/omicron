@@ -6,6 +6,7 @@
 //! OPTE instances.
 
 use crate::app::background::BackgroundTask;
+use crate::app::background::TaskName;
 use crate::app::dpd_clients;
 use dpd_client::types::AttachedSubnetEntry;
 use dpd_client::types::InstanceTarget;
@@ -43,13 +44,20 @@ use std::sync::Arc;
 
 /// Background task that pushes attached subnets.
 pub struct Manager {
+    name: TaskName,
+    description: String,
     resolver: Resolver,
     datastore: Arc<DataStore>,
 }
 
 impl Manager {
-    pub fn new(resolver: Resolver, datastore: Arc<DataStore>) -> Self {
-        Self { resolver, datastore }
+    pub fn new(
+        name: TaskName,
+        description: impl ToString,
+        resolver: Resolver,
+        datastore: Arc<DataStore>,
+    ) -> Self {
+        Self { name, description: description.to_string(), resolver, datastore }
     }
 
     async fn send_attachments_to_dendrite(
@@ -360,6 +368,14 @@ impl<'a> AttachedSubnetDiff<'a> {
 }
 
 impl BackgroundTask for Manager {
+    fn name(&self) -> &TaskName {
+        &self.name
+    }
+
+    fn description(&self) -> &str {
+        &self.description
+    }
+
     fn activate<'a>(
         &'a mut self,
         opctx: &'a OpContext,
@@ -562,8 +578,12 @@ mod test {
             cptestctx.logctx.log.clone(),
             datastore.clone(),
         );
-        let mut task =
-            Manager::new(nexus.resolver().clone(), datastore.clone());
+        let mut task = Manager::new(
+            crate::app::background::TaskName::new("test_task"),
+            "test task",
+            nexus.resolver().clone(),
+            datastore.clone(),
+        );
 
         // Create a resource hierarchy.
         let _subnet_pool =

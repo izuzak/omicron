@@ -11,6 +11,7 @@
 
 use crate::app::background::Activator;
 use crate::app::background::BackgroundTask;
+use crate::app::background::TaskName;
 use chrono::Utc;
 use ereport_types::Ena;
 use ereport_types::EreportId;
@@ -31,6 +32,8 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 pub struct SpEreportIngester {
+    name: TaskName,
+    description: String,
     resolver: internal_dns_resolver::Resolver,
     fm_analysis: Activator,
     disabled: bool,
@@ -45,6 +48,14 @@ struct Ingester {
 }
 
 impl BackgroundTask for SpEreportIngester {
+    fn name(&self) -> &TaskName {
+        &self.name
+    }
+
+    fn description(&self) -> &str {
+        &self.description
+    }
+
     fn activate<'a>(
         &'a mut self,
         opctx: &'a OpContext,
@@ -59,6 +70,9 @@ impl BackgroundTask for SpEreportIngester {
 impl SpEreportIngester {
     #[must_use]
     pub fn new(
+        name: TaskName,
+        description: impl ToString,
+
         datastore: Arc<DataStore>,
         resolver: internal_dns_resolver::Resolver,
         nexus_id: OmicronZoneUuid,
@@ -67,6 +81,8 @@ impl SpEreportIngester {
         disabled: bool,
     ) -> Self {
         Self {
+            name,
+            description: description.to_string(),
             resolver,
             inner: Ingester { datastore, nexus_id, rack_id },
             fm_analysis,
@@ -464,6 +480,8 @@ mod tests {
         fm_analysis_activator.mark_wired_up().unwrap();
 
         let mut ingester = SpEreportIngester::new(
+            crate::app::background::TaskName::new("test_task"),
+            "test task",
             datastore.clone(),
             nexus.internal_resolver.clone(),
             nexus.id(),

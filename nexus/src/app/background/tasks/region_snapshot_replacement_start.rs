@@ -13,6 +13,7 @@
 use crate::app::RegionAllocationStrategy;
 use crate::app::authn;
 use crate::app::background::BackgroundTask;
+use crate::app::background::TaskName;
 use crate::app::saga::StartSaga;
 use crate::app::sagas;
 use crate::app::sagas::NexusSaga;
@@ -29,13 +30,25 @@ use serde_json::json;
 use std::sync::Arc;
 
 pub struct RegionSnapshotReplacementDetector {
+    name: TaskName,
+    description: String,
     datastore: Arc<DataStore>,
     sagas: Arc<dyn StartSaga>,
 }
 
 impl RegionSnapshotReplacementDetector {
-    pub fn new(datastore: Arc<DataStore>, sagas: Arc<dyn StartSaga>) -> Self {
-        RegionSnapshotReplacementDetector { datastore, sagas }
+    pub fn new(
+        name: TaskName,
+        description: impl ToString,
+        datastore: Arc<DataStore>,
+        sagas: Arc<dyn StartSaga>,
+    ) -> Self {
+        RegionSnapshotReplacementDetector {
+            name,
+            description: description.to_string(),
+            datastore,
+            sagas,
+        }
     }
 
     async fn send_start_request(
@@ -286,6 +299,14 @@ impl RegionSnapshotReplacementDetector {
 }
 
 impl BackgroundTask for RegionSnapshotReplacementDetector {
+    fn name(&self) -> &TaskName {
+        &self.name
+    }
+
+    fn description(&self) -> &str {
+        &self.description
+    }
+
     fn activate<'a>(
         &'a mut self,
         opctx: &'a OpContext,
@@ -358,6 +379,8 @@ mod test {
 
         let starter = Arc::new(NoopStartSaga::new());
         let mut task = RegionSnapshotReplacementDetector::new(
+            crate::app::background::TaskName::new("test_task"),
+            "test task",
             datastore.clone(),
             starter.clone(),
         );
@@ -440,6 +463,8 @@ mod test {
 
         let starter = Arc::new(NoopStartSaga::new());
         let mut task = RegionSnapshotReplacementDetector::new(
+            crate::app::background::TaskName::new("test_task"),
+            "test task",
             datastore.clone(),
             starter.clone(),
         );
@@ -621,6 +646,8 @@ mod test {
 
         let starter = Arc::new(NoopStartSaga::new());
         let mut task = RegionSnapshotReplacementDetector::new(
+            crate::app::background::TaskName::new("test_task"),
+            "test task",
             datastore.clone(),
             starter.clone(),
         );

@@ -24,6 +24,7 @@
 
 use crate::app::background::Activator;
 use crate::app::background::BackgroundTask;
+use crate::app::background::TaskName;
 use futures::future::BoxFuture;
 use nexus_db_model::AlertDeliveryTrigger;
 use nexus_db_model::SCHEMA_VERSION;
@@ -42,11 +43,21 @@ use omicron_uuid_kinds::GenericUuid;
 use std::sync::Arc;
 
 pub struct AlertDispatcher {
+    name: TaskName,
+    description: String,
     datastore: Arc<DataStore>,
     deliverator: Activator,
 }
 
 impl BackgroundTask for AlertDispatcher {
+    fn name(&self) -> &TaskName {
+        &self.name
+    }
+
+    fn description(&self) -> &str {
+        &self.description
+    }
+
     fn activate<'a>(
         &'a mut self,
         opctx: &'a OpContext,
@@ -114,8 +125,18 @@ impl BackgroundTask for AlertDispatcher {
 }
 
 impl AlertDispatcher {
-    pub fn new(datastore: Arc<DataStore>, deliverator: Activator) -> Self {
-        Self { datastore, deliverator }
+    pub fn new(
+        name: TaskName,
+        description: impl ToString,
+        datastore: Arc<DataStore>,
+        deliverator: Activator,
+    ) -> Self {
+        Self {
+            name,
+            description: description.to_string(),
+            datastore,
+            deliverator,
+        }
     }
 
     async fn actually_activate(
@@ -475,6 +496,8 @@ mod test {
         };
 
         let mut task = AlertDispatcher::new(
+            crate::app::background::TaskName::new("test_task"),
+            "test task",
             datastore.clone(),
             nexus.background_tasks.task_webhook_deliverator.clone(),
         );

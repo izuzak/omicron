@@ -9,6 +9,7 @@
 use crate::app::dpd_clients;
 
 use crate::app::background::BackgroundTask;
+use crate::app::background::TaskName;
 use chrono::{Duration, Utc};
 use futures::FutureExt;
 use futures::future::BoxFuture;
@@ -22,20 +23,38 @@ use std::sync::Arc;
 /// Background task that periodically prunes soft-deleted entries
 /// from nat_entry table
 pub struct Ipv4NatGarbageCollector {
+    name: TaskName,
+    description: String,
     datastore: Arc<DataStore>,
     resolver: Resolver,
 }
 
 impl Ipv4NatGarbageCollector {
     pub fn new(
+        name: TaskName,
+        description: impl ToString,
+
         datastore: Arc<DataStore>,
         resolver: Resolver,
     ) -> Ipv4NatGarbageCollector {
-        Ipv4NatGarbageCollector { datastore, resolver }
+        Ipv4NatGarbageCollector {
+            name,
+            description: description.to_string(),
+            datastore,
+            resolver,
+        }
     }
 }
 
 impl BackgroundTask for Ipv4NatGarbageCollector {
+    fn name(&self) -> &TaskName {
+        &self.name
+    }
+
+    fn description(&self) -> &str {
+        &self.description
+    }
+
     fn activate<'a>(
         &'a mut self,
         opctx: &'a OpContext,

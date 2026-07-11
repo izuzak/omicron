@@ -5,6 +5,7 @@
 //! Background task for pulling instance state from sled-agents.
 
 use crate::app::background::BackgroundTask;
+use crate::app::background::TaskName;
 use crate::app::instance::SledAgentInstanceError;
 use crate::app::saga::StartSaga;
 use futures::{FutureExt, future::BoxFuture};
@@ -50,6 +51,8 @@ use virtual_machine::VirtualMachine;
 
 /// Background task that periodically checks instance states.
 pub(crate) struct InstanceWatcher {
+    name: TaskName,
+    description: String,
     datastore: Arc<DataStore>,
     sagas: Arc<dyn StartSaga>,
     resolver: internal_dns_resolver::Resolver,
@@ -80,6 +83,9 @@ const MAX_CONCURRENT_CHECKS: usize = 16;
 
 impl InstanceWatcher {
     pub(crate) fn new(
+        name: TaskName,
+        description: impl ToString,
+
         datastore: Arc<DataStore>,
         sagas: Arc<dyn StartSaga>,
         producer_registry: &ProducerRegistry,
@@ -91,7 +97,16 @@ impl InstanceWatcher {
         producer_registry
             .register_producer(metrics::Producer(metrics.clone()))
             .unwrap();
-        Self { datastore, sagas, metrics, id, resolver, inv_rx }
+        Self {
+            name,
+            description: description.to_string(),
+            datastore,
+            sagas,
+            metrics,
+            id,
+            resolver,
+            inv_rx,
+        }
     }
 
     #[allow(clippy::too_many_arguments)] // i also don't love it, buddy...
@@ -604,6 +619,14 @@ impl Incomplete {
 type ClientError = sled_agent_client::Error<sled_agent_client::types::Error>;
 
 impl BackgroundTask for InstanceWatcher {
+    fn name(&self) -> &TaskName {
+        &self.name
+    }
+
+    fn description(&self) -> &str {
+        &self.description
+    }
+
     fn activate<'a>(
         &'a mut self,
         opctx: &'a OpContext,

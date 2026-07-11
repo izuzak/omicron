@@ -6,6 +6,7 @@
 
 use super::reconfigurator_config::ReconfiguratorConfigLoaderState;
 use crate::app::background::BackgroundTask;
+use crate::app::background::TaskName;
 use crate::app::background::tasks::blueprint_load::LoadedTargetBlueprint;
 use chrono::Utc;
 use futures::future::BoxFuture;
@@ -57,6 +58,8 @@ enum PlanError {
 
 /// Background task that runs the update planner.
 pub struct BlueprintPlanner {
+    name: TaskName,
+    description: String,
     datastore: Arc<DataStore>,
     rx_config: Receiver<ReconfiguratorConfigLoaderState>,
     rx_inventory: Receiver<Option<Arc<Collection>>>,
@@ -84,6 +87,8 @@ const DEFAULT_BLUEPRINT_LIMIT: u64 = 5000;
 
 impl BlueprintPlanner {
     pub fn new(
+        name: TaskName,
+        description: impl ToString,
         datastore: Arc<DataStore>,
         rx_config: Receiver<ReconfiguratorConfigLoaderState>,
         rx_inventory: Receiver<Option<Arc<Collection>>>,
@@ -92,6 +97,8 @@ impl BlueprintPlanner {
     ) -> Self {
         let (tx_planned, _) = watch::channel(None);
         Self {
+            name,
+            description: description.to_string(),
             datastore,
             rx_config,
             rx_inventory,
@@ -419,6 +426,14 @@ impl BlueprintPlanner {
 }
 
 impl BackgroundTask for BlueprintPlanner {
+    fn name(&self) -> &TaskName {
+        &self.name
+    }
+
+    fn description(&self) -> &str {
+        &self.description
+    }
+
     fn activate<'a>(
         &'a mut self,
         opctx: &'a OpContext,
@@ -471,8 +486,12 @@ mod test {
 
         // Spin up the blueprint loader background task.
         let (tx_loader, _) = watch::channel(None);
-        let mut bp_loader =
-            TargetBlueprintLoader::new(datastore.clone(), tx_loader);
+        let mut bp_loader = TargetBlueprintLoader::new(
+            TaskName::new("test_blueprint_loader"),
+            "test blueprint loader task",
+            datastore.clone(),
+            tx_loader,
+        );
         let mut rx_loader = bp_loader.watcher();
         bp_loader.activate(&opctx).await;
         let initial_blueprint = rx_loader
@@ -488,6 +507,8 @@ mod test {
         )
         .expect("can't start resolver");
         let mut collector = InventoryCollector::new(
+            TaskName::new("test_inventory_collection"),
+            "test inventory collection task",
             &opctx,
             datastore.clone(),
             resolver.clone(),
@@ -498,8 +519,12 @@ mod test {
         collector.activate(&opctx).await;
 
         // Spin up the inventory loader background task.
-        let mut inv_loader =
-            InventoryLoader::new(datastore.clone(), watch::Sender::new(None));
+        let mut inv_loader = InventoryLoader::new(
+            TaskName::new("test_inventory_loader"),
+            "test inventory loader task",
+            datastore.clone(),
+            watch::Sender::new(None),
+        );
         let rx_inventory = inv_loader.watcher();
         inv_loader.activate(&opctx).await;
 
@@ -517,6 +542,8 @@ mod test {
 
         // Finally, spin up the planner background task.
         let mut planner = BlueprintPlanner::new(
+            TaskName::new("test_blueprint_planner"),
+            "test blueprint planner task",
             datastore.clone(),
             rx_config_loader,
             rx_inventory,
@@ -605,6 +632,8 @@ mod test {
         // Execute the plan.
         let (dummy_tx, _dummy_rx) = watch::channel(PendingMgsUpdates::new());
         let mut executor = BlueprintExecutor::new(
+            TaskName::new("test_blueprint_executor"),
+            "test blueprint executor task",
             datastore.clone(),
             resolver.clone(),
             rx_loader.clone(),
@@ -701,6 +730,8 @@ mod test {
 
         let test_nexus_id = OmicronZoneUuid::new_v4();
         let mut planner = BlueprintPlanner::new(
+            TaskName::new("test_blueprint_planner"),
+            "test blueprint planner task",
             datastore.clone(),
             rx_config_loader,
             rx_inventory,

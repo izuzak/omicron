@@ -8,6 +8,7 @@
 //! blueprint changes.
 
 use crate::app::background::BackgroundTask;
+use crate::app::background::TaskName;
 use futures::FutureExt;
 use futures::future::BoxFuture;
 use nexus_db_queries::context::OpContext;
@@ -24,16 +25,25 @@ pub struct LoadedTargetBlueprint {
 }
 
 pub struct TargetBlueprintLoader {
+    name: TaskName,
+    description: String,
     datastore: Arc<DataStore>,
     tx: watch::Sender<Option<LoadedTargetBlueprint>>,
 }
 
 impl TargetBlueprintLoader {
     pub fn new(
+        name: TaskName,
+        description: impl ToString,
         datastore: Arc<DataStore>,
         tx: watch::Sender<Option<LoadedTargetBlueprint>>,
     ) -> TargetBlueprintLoader {
-        TargetBlueprintLoader { datastore, tx }
+        TargetBlueprintLoader {
+            name,
+            description: description.to_string(),
+            datastore,
+            tx,
+        }
     }
 
     /// Expose the target blueprint
@@ -43,6 +53,14 @@ impl TargetBlueprintLoader {
 }
 
 impl BackgroundTask for TargetBlueprintLoader {
+    fn name(&self) -> &TaskName {
+        &self.name
+    }
+
+    fn description(&self) -> &str {
+        &self.description
+    }
+
     fn activate<'a>(
         &'a mut self,
         opctx: &'a OpContext,
@@ -279,7 +297,12 @@ mod test {
         );
 
         let (tx, _) = watch::channel(None);
-        let mut task = TargetBlueprintLoader::new(datastore.clone(), tx);
+        let mut task = TargetBlueprintLoader::new(
+            TaskName::new("test_blueprint_loader"),
+            "test blueprint loader task",
+            datastore.clone(),
+            tx,
+        );
         let mut rx = task.watcher();
 
         // We expect to see the initial blueprint set up by nexus-test-utils

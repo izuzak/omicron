@@ -6,6 +6,7 @@
 //! the retention period.
 
 use crate::app::background::BackgroundTask;
+use crate::app::background::TaskName;
 use chrono::TimeDelta;
 use chrono::Utc;
 use futures::future::BoxFuture;
@@ -18,6 +19,8 @@ use std::num::NonZeroU32;
 use std::sync::Arc;
 
 pub struct AuditLogCleanup {
+    name: TaskName,
+    description: String,
     datastore: Arc<DataStore>,
     retention: TimeDelta,
     max_deleted_per_activation: u32,
@@ -25,6 +28,9 @@ pub struct AuditLogCleanup {
 
 impl AuditLogCleanup {
     pub fn new(
+        name: TaskName,
+        description: impl ToString,
+
         datastore: Arc<DataStore>,
         retention_days: NonZeroU32,
         max_deleted_per_activation: u32,
@@ -39,7 +45,13 @@ impl AuditLogCleanup {
                  (must be representable as a TimeDelta)"
             );
         };
-        Self { datastore, retention, max_deleted_per_activation }
+        Self {
+            name,
+            description: description.to_string(),
+            datastore,
+            retention,
+            max_deleted_per_activation,
+        }
     }
 
     pub(crate) async fn actually_activate(
@@ -107,6 +119,14 @@ impl AuditLogCleanup {
 }
 
 impl BackgroundTask for AuditLogCleanup {
+    fn name(&self) -> &TaskName {
+        &self.name
+    }
+
+    fn description(&self) -> &str {
+        &self.description
+    }
+
     fn activate<'a>(
         &'a mut self,
         opctx: &'a OpContext,
@@ -255,6 +275,8 @@ mod tests {
         // max_deleted_per_activation = 3, so it takes two activations to
         // delete all 5 old entries
         let mut task = AuditLogCleanup::new(
+            crate::app::background::TaskName::new("test_task"),
+            "test task",
             datastore.clone(),
             NonZeroU32::new(7).unwrap(),
             3,
@@ -313,6 +335,8 @@ mod tests {
         let (opctx, _datastore) = (db.opctx(), db.datastore());
 
         let mut task = AuditLogCleanup::new(
+            crate::app::background::TaskName::new("test_task"),
+            "test task",
             db.datastore().clone(),
             NonZeroU32::new(u32::MAX).unwrap(),
             100,

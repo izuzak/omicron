@@ -6,6 +6,7 @@
 //! `result_kind = timeout`, making them visible through the audit log API.
 
 use crate::app::background::BackgroundTask;
+use crate::app::background::TaskName;
 use chrono::TimeDelta;
 use chrono::Utc;
 use futures::future::BoxFuture;
@@ -18,6 +19,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 pub struct AuditLogTimeoutIncomplete {
+    name: TaskName,
+    description: String,
     datastore: Arc<DataStore>,
     timeout: TimeDelta,
     max_timed_out_per_activation: u32,
@@ -25,6 +28,9 @@ pub struct AuditLogTimeoutIncomplete {
 
 impl AuditLogTimeoutIncomplete {
     pub fn new(
+        name: TaskName,
+        description: impl ToString,
+
         datastore: Arc<DataStore>,
         timeout: Duration,
         max_timed_out_per_activation: u32,
@@ -36,7 +42,13 @@ impl AuditLogTimeoutIncomplete {
                  (must be representable as a TimeDelta)"
             );
         };
-        Self { datastore, timeout, max_timed_out_per_activation }
+        Self {
+            name,
+            description: description.to_string(),
+            datastore,
+            timeout,
+            max_timed_out_per_activation,
+        }
     }
 
     pub(crate) async fn actually_activate(
@@ -98,6 +110,14 @@ impl AuditLogTimeoutIncomplete {
 }
 
 impl BackgroundTask for AuditLogTimeoutIncomplete {
+    fn name(&self) -> &TaskName {
+        &self.name
+    }
+
+    fn description(&self) -> &str {
+        &self.description
+    }
+
     fn activate<'a>(
         &'a mut self,
         opctx: &'a OpContext,
@@ -251,6 +271,8 @@ mod tests {
         // max_timed_out_per_activation = 3, so it takes two activations to
         // time out all 5 stale entries
         let mut task = AuditLogTimeoutIncomplete::new(
+            crate::app::background::TaskName::new("test_task"),
+            "test task",
             datastore.clone(),
             Duration::from_secs(3600),
             3,

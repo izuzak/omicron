@@ -6,6 +6,7 @@
 //! renewed their lease
 
 use crate::app::background::BackgroundTask;
+use crate::app::background::TaskName;
 use chrono::TimeDelta;
 use chrono::Utc;
 use futures::FutureExt;
@@ -20,13 +21,25 @@ use std::time::Duration;
 /// Background task that prunes metrics producers that have failed to renew
 /// their lease.
 pub struct MetricProducerGc {
+    name: TaskName,
+    description: String,
     datastore: Arc<DataStore>,
     lease_duration: Duration,
 }
 
 impl MetricProducerGc {
-    pub fn new(datastore: Arc<DataStore>, lease_duration: Duration) -> Self {
-        Self { datastore, lease_duration }
+    pub fn new(
+        name: TaskName,
+        description: impl ToString,
+        datastore: Arc<DataStore>,
+        lease_duration: Duration,
+    ) -> Self {
+        Self {
+            name,
+            description: description.to_string(),
+            datastore,
+            lease_duration,
+        }
     }
 
     async fn activate(&mut self, opctx: &OpContext) -> serde_json::Value {
@@ -94,6 +107,14 @@ impl MetricProducerGc {
 }
 
 impl BackgroundTask for MetricProducerGc {
+    fn name(&self) -> &TaskName {
+        &self.name
+    }
+
+    fn description(&self) -> &str {
+        &self.description
+    }
+
     fn activate<'a>(
         &'a mut self,
         opctx: &'a OpContext,
@@ -216,8 +237,12 @@ mod tests {
         // could prune the producer we just added, but if it's been an hour
         // since then, we have bigger problems. This should _not_ prune the
         // producer, since it's been active within the last hour.
-        let mut gc =
-            MetricProducerGc::new(datastore.clone(), Duration::from_secs(3600));
+        let mut gc = MetricProducerGc::new(
+            crate::app::background::TaskName::new("test_task"),
+            "test task",
+            datastore.clone(),
+            Duration::from_secs(3600),
+        );
         let value = gc.activate(&opctx).await;
         let value = value.as_object().expect("non-object");
         assert!(!value.contains_key("failures"));

@@ -11,6 +11,7 @@
 //! start' background task.
 
 use crate::app::background::BackgroundTask;
+use crate::app::background::TaskName;
 use futures::FutureExt;
 use futures::future::BoxFuture;
 use nexus_db_queries::context::OpContext;
@@ -21,12 +22,22 @@ use serde_json::json;
 use std::sync::Arc;
 
 pub struct ReadOnlyRegionReplacementDetector {
+    name: TaskName,
+    description: String,
     datastore: Arc<DataStore>,
 }
 
 impl ReadOnlyRegionReplacementDetector {
-    pub fn new(datastore: Arc<DataStore>) -> Self {
-        ReadOnlyRegionReplacementDetector { datastore }
+    pub fn new(
+        name: TaskName,
+        description: impl ToString,
+        datastore: Arc<DataStore>,
+    ) -> Self {
+        ReadOnlyRegionReplacementDetector {
+            name,
+            description: description.to_string(),
+            datastore,
+        }
     }
 
     /// Find read-only regions on expunged physical disks and create replacement
@@ -139,6 +150,14 @@ impl ReadOnlyRegionReplacementDetector {
 }
 
 impl BackgroundTask for ReadOnlyRegionReplacementDetector {
+    fn name(&self) -> &TaskName {
+        &self.name
+    }
+
+    fn description(&self) -> &str {
+        &self.description
+    }
+
     fn activate<'a>(
         &'a mut self,
         opctx: &'a OpContext,
@@ -219,8 +238,11 @@ mod test {
             dataset_to_zpool.insert(zpool.id, dataset.id);
         }
 
-        let mut task =
-            ReadOnlyRegionReplacementDetector::new(datastore.clone());
+        let mut task = ReadOnlyRegionReplacementDetector::new(
+            crate::app::background::TaskName::new("test_task"),
+            "test task",
+            datastore.clone(),
+        );
 
         // Noop test
         let result: ReadOnlyRegionReplacementStartStatus =

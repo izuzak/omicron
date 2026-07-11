@@ -10,6 +10,7 @@
 //! have a recorded port.
 
 use crate::app::background::BackgroundTask;
+use crate::app::background::TaskName;
 use anyhow::Result;
 use crucible_agent_client::Client as CrucibleAgentClient;
 use crucible_agent_client::types::Region;
@@ -25,12 +26,22 @@ use std::sync::Arc;
 use uuid::Uuid;
 
 pub struct LookupRegionPort {
+    name: TaskName,
+    description: String,
     datastore: Arc<DataStore>,
 }
 
 impl LookupRegionPort {
-    pub fn new(datastore: Arc<DataStore>) -> Self {
-        LookupRegionPort { datastore }
+    pub fn new(
+        name: TaskName,
+        description: impl ToString,
+        datastore: Arc<DataStore>,
+    ) -> Self {
+        LookupRegionPort {
+            name,
+            description: description.to_string(),
+            datastore,
+        }
     }
 }
 
@@ -47,6 +58,14 @@ async fn get_region_from_agent(
 }
 
 impl BackgroundTask for LookupRegionPort {
+    fn name(&self) -> &TaskName {
+        &self.name
+    }
+
+    fn description(&self) -> &str {
+        &self.description
+    }
+
     fn activate<'a>(
         &'a mut self,
         opctx: &'a OpContext,

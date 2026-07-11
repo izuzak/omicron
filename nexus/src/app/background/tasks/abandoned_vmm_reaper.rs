@@ -32,6 +32,7 @@
 //! saga.
 
 use crate::app::background::BackgroundTask;
+use crate::app::background::TaskName;
 use anyhow::Context;
 use futures::FutureExt;
 use futures::future::BoxFuture;
@@ -46,12 +47,18 @@ use std::sync::Arc;
 
 /// Background task that searches for abandoned VMM records and deletes them.
 pub struct AbandonedVmmReaper {
+    name: TaskName,
+    description: String,
     datastore: Arc<DataStore>,
 }
 
 impl AbandonedVmmReaper {
-    pub fn new(datastore: Arc<DataStore>) -> Self {
-        Self { datastore }
+    pub fn new(
+        name: TaskName,
+        description: impl ToString,
+        datastore: Arc<DataStore>,
+    ) -> Self {
+        Self { name, description: description.to_string(), datastore }
     }
 
     /// List abandoned VMMs and clean up all of their database records.
@@ -160,6 +167,14 @@ impl AbandonedVmmReaper {
 }
 
 impl BackgroundTask for AbandonedVmmReaper {
+    fn name(&self) -> &TaskName {
+        &self.name
+    }
+
+    fn description(&self) -> &str {
+        &self.description
+    }
+
     fn activate<'a>(
         &'a mut self,
         opctx: &'a OpContext,
@@ -341,7 +356,11 @@ mod tests {
             TestFixture::setup(&cptestctx.external_client, datastore, &opctx)
                 .await;
 
-        let mut task = AbandonedVmmReaper::new(datastore.clone());
+        let mut task = AbandonedVmmReaper::new(
+            crate::app::background::TaskName::new("test_task"),
+            "test task",
+            datastore.clone(),
+        );
 
         let mut status = AbandonedVmmReaperStatus::default();
         dbg!(task.reap_all(&mut status, &opctx,).await)
@@ -391,7 +410,11 @@ mod tests {
             .expect("simulate another nexus marking the VMM deleted");
 
         let mut status = AbandonedVmmReaperStatus::default();
-        let mut task = AbandonedVmmReaper::new(datastore.clone());
+        let mut task = AbandonedVmmReaper::new(
+            crate::app::background::TaskName::new("test_task"),
+            "test task",
+            datastore.clone(),
+        );
         task.reap_batch(&mut status, &opctx, &abandoned_vmms).await;
         dbg!(&status);
 
@@ -443,7 +466,11 @@ mod tests {
             );
 
         let mut status = AbandonedVmmReaperStatus::default();
-        let mut task = AbandonedVmmReaper::new(datastore.clone());
+        let mut task = AbandonedVmmReaper::new(
+            crate::app::background::TaskName::new("test_task"),
+            "test task",
+            datastore.clone(),
+        );
         task.reap_batch(&mut status, &opctx, &abandoned_vmms).await;
         dbg!(&status);
 

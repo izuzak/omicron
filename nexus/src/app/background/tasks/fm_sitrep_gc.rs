@@ -5,6 +5,7 @@
 //! Background task for fault management sitrep garbage collection.
 
 use crate::app::background::BackgroundTask;
+use crate::app::background::TaskName;
 use futures::future::BoxFuture;
 use nexus_db_queries::context::OpContext;
 use nexus_db_queries::db::DataStore;
@@ -15,10 +16,20 @@ use slog_error_chain::InlineErrorChain;
 use std::sync::Arc;
 
 pub struct SitrepGc {
+    name: TaskName,
+    description: String,
     datastore: Arc<DataStore>,
 }
 
 impl BackgroundTask for SitrepGc {
+    fn name(&self) -> &TaskName {
+        &self.name
+    }
+
+    fn description(&self) -> &str {
+        &self.description
+    }
+
     fn activate<'a>(
         &'a mut self,
         opctx: &'a OpContext,
@@ -40,8 +51,12 @@ impl BackgroundTask for SitrepGc {
 }
 
 impl SitrepGc {
-    pub fn new(datastore: Arc<DataStore>) -> Self {
-        Self { datastore }
+    pub fn new(
+        name: TaskName,
+        description: impl ToString,
+        datastore: Arc<DataStore>,
+    ) -> Self {
+        Self { name, description: description.to_string(), datastore }
     }
 
     async fn actually_activate(&mut self, opctx: &OpContext) -> Status {
@@ -107,7 +122,11 @@ mod tests {
         let db = TestDatabase::new_with_datastore(&logctx.log).await;
         let (opctx, datastore) = (db.opctx(), db.datastore());
 
-        let mut task = SitrepGc::new(datastore.clone());
+        let mut task = SitrepGc::new(
+            crate::app::background::TaskName::new("test_task"),
+            "test task",
+            datastore.clone(),
+        );
 
         // First, insert an initial sitrep. This should succeed.
         let sitrep1 = fm::Sitrep {

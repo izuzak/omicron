@@ -8,6 +8,7 @@
 use crate::app::dpd_clients;
 
 use crate::app::background::BackgroundTask;
+use crate::app::background::TaskName;
 use anyhow::Context;
 use futures::FutureExt;
 use futures::future::BoxFuture;
@@ -38,6 +39,8 @@ const MIN_EXTERNAL_DNS_COUNT: usize = 1;
 /// Background task that ensures service zones have nat entries
 /// persisted in the NAT RPW table
 pub struct ServiceZoneNatTracker {
+    name: TaskName,
+    description: String,
     datastore: Arc<DataStore>,
     resolver: Resolver,
     rx_inventory: watch::Receiver<Option<Arc<Collection>>>,
@@ -45,15 +48,32 @@ pub struct ServiceZoneNatTracker {
 
 impl ServiceZoneNatTracker {
     pub fn new(
+        name: TaskName,
+        description: impl ToString,
+
         datastore: Arc<DataStore>,
         resolver: Resolver,
         rx_inventory: watch::Receiver<Option<Arc<Collection>>>,
     ) -> Self {
-        Self { datastore, resolver, rx_inventory }
+        Self {
+            name,
+            description: description.to_string(),
+            datastore,
+            resolver,
+            rx_inventory,
+        }
     }
 }
 
 impl BackgroundTask for ServiceZoneNatTracker {
+    fn name(&self) -> &TaskName {
+        &self.name
+    }
+
+    fn description(&self) -> &str {
+        &self.description
+    }
+
     fn activate<'a>(
         &'a mut self,
         opctx: &'a OpContext,

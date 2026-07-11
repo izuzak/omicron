@@ -5,6 +5,7 @@
 //! Background task for loading the latest inventory collection from the DB
 
 use crate::app::background::BackgroundTask;
+use crate::app::background::TaskName;
 use chrono::Utc;
 use futures::future::BoxFuture;
 use nexus_auth::context::OpContext;
@@ -17,6 +18,8 @@ use std::sync::Arc;
 use tokio::sync::watch;
 
 pub struct InventoryLoader {
+    name: TaskName,
+    description: String,
     datastore: Arc<DataStore>,
     // We store an `Arc<Collection>` in this channel instead of just a
     // `Collection` so that cloning it is cheap: we want callers to just grab a
@@ -26,6 +29,14 @@ pub struct InventoryLoader {
 }
 
 impl BackgroundTask for InventoryLoader {
+    fn name(&self) -> &TaskName {
+        &self.name
+    }
+
+    fn description(&self) -> &str {
+        &self.description
+    }
+
     fn activate<'a>(
         &'a mut self,
         opctx: &'a OpContext,
@@ -48,10 +59,12 @@ impl BackgroundTask for InventoryLoader {
 
 impl InventoryLoader {
     pub fn new(
+        name: TaskName,
+        description: impl ToString,
         datastore: Arc<DataStore>,
         tx: watch::Sender<Option<Arc<Collection>>>,
     ) -> Self {
-        Self { datastore, tx }
+        Self { name, description: description.to_string(), datastore, tx }
     }
 
     pub fn watcher(&self) -> watch::Receiver<Option<Arc<Collection>>> {
@@ -179,7 +192,12 @@ mod tests {
         let (opctx, datastore) = (db.opctx(), db.datastore());
 
         let (tx, mut rx) = watch::channel(None);
-        let loader = InventoryLoader::new(datastore.clone(), tx);
+        let loader = InventoryLoader::new(
+            TaskName::new("test_inventory_loader"),
+            "test inventory loader task",
+            datastore.clone(),
+            tx,
+        );
 
         // Initial state is `None`
         assert_eq!(*rx.borrow_and_update(), None);

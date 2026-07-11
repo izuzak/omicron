@@ -122,6 +122,7 @@
 
 use crate::Nexus;
 use crate::app::background::BackgroundTask;
+use crate::app::background::TaskName;
 use crate::app::sagas::NexusSagaType;
 use crate::saga_interface::SagaContext;
 use futures::FutureExt;
@@ -157,6 +158,8 @@ pub struct SagaRecoveryHelpers<N: MakeSagaContext> {
 /// Nexus has been expunged) and to handle retries for sagas whose previous
 /// recovery failed.
 pub struct SagaRecovery<N: MakeSagaContext> {
+    name: TaskName,
+    description: String,
     /// Quiesce state
     quiesce: SagaQuiesceHandle,
 
@@ -192,6 +195,14 @@ struct SagaRecoveryInner<N: MakeSagaContext> {
 }
 
 impl<N: MakeSagaContext> BackgroundTask for SagaRecovery<N> {
+    fn name(&self) -> &TaskName {
+        &self.name
+    }
+
+    fn description(&self) -> &str {
+        &self.description
+    }
+
     fn activate<'a>(
         &'a mut self,
         opctx: &'a OpContext,
@@ -208,11 +219,16 @@ impl<N: MakeSagaContext> BackgroundTask for SagaRecovery<N> {
 
 impl<N: MakeSagaContext> SagaRecovery<N> {
     pub fn new(
+        name: TaskName,
+        description: impl ToString,
+
         datastore: Arc<DataStore>,
         sec_id: db::SecId,
         helpers: SagaRecoveryHelpers<N>,
     ) -> SagaRecovery<N> {
         SagaRecovery {
+            name,
+            description: description.to_string(),
             quiesce: helpers.quiesce,
             inner: SagaRecoveryInner {
                 datastore,
@@ -730,6 +746,8 @@ mod test {
         let (_, sagas_started_rx) = tokio::sync::mpsc::unbounded_channel();
         let quiesce = SagaQuiesceHandle::new(log.clone());
         let mut task = SagaRecovery::new(
+            crate::app::background::TaskName::new("test_task"),
+            "test task",
             db_datastore.clone(),
             sec_id,
             SagaRecoveryHelpers {
@@ -808,6 +826,8 @@ mod test {
         let (_, sagas_started_rx) = tokio::sync::mpsc::unbounded_channel();
         let quiesce = SagaQuiesceHandle::new(log.clone());
         let mut task = SagaRecovery::new(
+            crate::app::background::TaskName::new("test_task"),
+            "test task",
             db_datastore.clone(),
             sec_id,
             SagaRecoveryHelpers {

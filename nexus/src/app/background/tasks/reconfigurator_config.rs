@@ -5,6 +5,7 @@
 //! Runtime configuration for reconfigurator
 
 use crate::app::background::BackgroundTask;
+use crate::app::background::TaskName;
 use anyhow::Context;
 use futures::FutureExt;
 use futures::future::BoxFuture;
@@ -25,15 +26,21 @@ pub enum ReconfiguratorConfigLoaderState {
 
 /// Background task that tracks reconfigurator config from the DB
 pub struct ReconfiguratorConfigLoader {
+    name: TaskName,
+    description: String,
     datastore: Arc<DataStore>,
     tx: watch::Sender<ReconfiguratorConfigLoaderState>,
 }
 
 impl ReconfiguratorConfigLoader {
-    pub fn new(datastore: Arc<DataStore>) -> Self {
+    pub fn new(
+        name: TaskName,
+        description: impl ToString,
+        datastore: Arc<DataStore>,
+    ) -> Self {
         let (tx, _rx) =
             watch::channel(ReconfiguratorConfigLoaderState::NotYetLoaded);
-        Self { datastore, tx }
+        Self { name, description: description.to_string(), datastore, tx }
     }
 
     pub fn watcher(&self) -> watch::Receiver<ReconfiguratorConfigLoaderState> {
@@ -42,6 +49,14 @@ impl ReconfiguratorConfigLoader {
 }
 
 impl BackgroundTask for ReconfiguratorConfigLoader {
+    fn name(&self) -> &TaskName {
+        &self.name
+    }
+
+    fn description(&self) -> &str {
+        &self.description
+    }
+
     fn activate<'a>(
         &'a mut self,
         opctx: &'a OpContext,
@@ -126,7 +141,11 @@ mod test {
                 .expect("removed nexus_test default reconfigurator config");
         }
 
-        let mut task = ReconfiguratorConfigLoader::new(datastore.clone());
+        let mut task = ReconfiguratorConfigLoader::new(
+            TaskName::new("test_reconfigurator_config_loader"),
+            "test reconfigurator config loader task",
+            datastore.clone(),
+        );
 
         // Initial state should be `NotYetLoaded`.
         let mut rx = task.watcher();

@@ -5,6 +5,7 @@
 //! Background task for detecting instances in need of update sagas.
 
 use crate::app::background::BackgroundTask;
+use crate::app::background::TaskName;
 use crate::app::saga::StartSaga;
 use crate::app::sagas::NexusSaga;
 use crate::app::sagas::instance_update;
@@ -28,6 +29,8 @@ use tokio::task::JoinSet;
 use uuid::Uuid;
 
 pub struct InstanceUpdater {
+    name: TaskName,
+    description: String,
     datastore: Arc<DataStore>,
     sagas: Arc<dyn StartSaga>,
     disable: bool,
@@ -35,11 +38,20 @@ pub struct InstanceUpdater {
 
 impl InstanceUpdater {
     pub fn new(
+        name: TaskName,
+        description: impl ToString,
+
         datastore: Arc<DataStore>,
         sagas: Arc<dyn StartSaga>,
         disable: bool,
     ) -> Self {
-        InstanceUpdater { datastore, sagas, disable }
+        InstanceUpdater {
+            name,
+            description: description.to_string(),
+            datastore,
+            sagas,
+            disable,
+        }
     }
 
     async fn actually_activate(
@@ -207,6 +219,14 @@ impl InstanceUpdater {
 }
 
 impl BackgroundTask for InstanceUpdater {
+    fn name(&self) -> &TaskName {
+        &self.name
+    }
+
+    fn description(&self) -> &str {
+        &self.description
+    }
+
     fn activate<'a>(
         &'a mut self,
         opctx: &'a OpContext,

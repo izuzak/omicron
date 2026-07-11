@@ -7,6 +7,7 @@
 //! associated with those names
 
 use crate::app::background::BackgroundTask;
+use crate::app::background::TaskName;
 pub use crate::app::external_endpoints::ExternalEndpoints;
 use crate::app::external_endpoints::read_all_endpoints;
 use futures::FutureExt;
@@ -20,6 +21,8 @@ use tokio::sync::watch;
 /// Background task that keeps track of the latest list of TLS certificates for
 /// Nexus's external endpoint
 pub struct ExternalEndpointsWatcher {
+    name: TaskName,
+    description: String,
     datastore: Arc<DataStore>,
     last: Option<ExternalEndpoints>,
     tx: watch::Sender<Option<ExternalEndpoints>>,
@@ -27,14 +30,31 @@ pub struct ExternalEndpointsWatcher {
 
 impl ExternalEndpointsWatcher {
     pub fn new(
+        name: TaskName,
+        description: impl ToString,
+
         datastore: Arc<DataStore>,
         tx: watch::Sender<Option<ExternalEndpoints>>,
     ) -> ExternalEndpointsWatcher {
-        ExternalEndpointsWatcher { datastore, last: None, tx }
+        ExternalEndpointsWatcher {
+            name,
+            description: description.to_string(),
+            datastore,
+            last: None,
+            tx,
+        }
     }
 }
 
 impl BackgroundTask for ExternalEndpointsWatcher {
+    fn name(&self) -> &TaskName {
+        &self.name
+    }
+
+    fn description(&self) -> &str {
+        &self.description
+    }
+
     fn activate<'a>(
         &'a mut self,
         opctx: &'a OpContext,
@@ -134,7 +154,12 @@ mod test {
 
         // Verify the initial state.
         let (tx, watcher) = watch::channel(None);
-        let mut task = ExternalEndpointsWatcher::new(datastore.clone(), tx);
+        let mut task = ExternalEndpointsWatcher::new(
+            crate::app::background::TaskName::new("test_task"),
+            "test task",
+            datastore.clone(),
+            tx,
+        );
         assert!(watcher.borrow().is_none());
 
         // The datastore from the ControlPlaneTestContext is initialized with

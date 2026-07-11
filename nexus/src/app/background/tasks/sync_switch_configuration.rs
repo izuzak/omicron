@@ -24,6 +24,7 @@ use tokio::sync::watch;
 use uuid::Uuid;
 
 use crate::app::background::BackgroundTask;
+use crate::app::background::TaskName;
 use display_error_chain::DisplayErrorChain;
 use dpd_client::{Client as DpdClient, types as DpdTypes};
 use futures::FutureExt;
@@ -137,6 +138,8 @@ impl Default for AddStaticRouteRequest {
 }
 
 pub struct SwitchPortSettingsManager {
+    name: TaskName,
+    description: String,
     datastore: Arc<DataStore>,
     resolver: Resolver,
     rx_blueprint: watch::Receiver<Option<LoadedTargetBlueprint>>,
@@ -144,11 +147,20 @@ pub struct SwitchPortSettingsManager {
 
 impl SwitchPortSettingsManager {
     pub fn new(
+        name: TaskName,
+        description: impl ToString,
+
         datastore: Arc<DataStore>,
         resolver: Resolver,
         rx_blueprint: watch::Receiver<Option<LoadedTargetBlueprint>>,
     ) -> Self {
-        Self { datastore, resolver, rx_blueprint }
+        Self {
+            name,
+            description: description.to_string(),
+            datastore,
+            resolver,
+            rx_blueprint,
+        }
     }
 
     async fn switch_ports(
@@ -275,6 +287,14 @@ enum PortSettingsChange {
 }
 
 impl BackgroundTask for SwitchPortSettingsManager {
+    fn name(&self) -> &TaskName {
+        &self.name
+    }
+
+    fn description(&self) -> &str {
+        &self.description
+    }
+
     fn activate<'a>(
         &'a mut self,
         opctx: &'a OpContext,

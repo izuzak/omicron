@@ -15,18 +15,33 @@ use serde_json::json;
 use sled_agent_client::types::VirtualNetworkInterfaceHost;
 
 use crate::app::background::BackgroundTask;
+use crate::app::background::TaskName;
 
 pub struct V2PManager {
+    name: TaskName,
+    description: String,
     datastore: Arc<DataStore>,
 }
 
 impl V2PManager {
-    pub fn new(datastore: Arc<DataStore>) -> Self {
-        Self { datastore }
+    pub fn new(
+        name: TaskName,
+        description: impl ToString,
+        datastore: Arc<DataStore>,
+    ) -> Self {
+        Self { name, description: description.to_string(), datastore }
     }
 }
 
 impl BackgroundTask for V2PManager {
+    fn name(&self) -> &TaskName {
+        &self.name
+    }
+
+    fn description(&self) -> &str {
+        &self.description
+    }
+
     fn activate<'a>(
         &'a mut self,
         opctx: &'a OpContext,

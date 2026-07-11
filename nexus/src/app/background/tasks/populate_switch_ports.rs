@@ -80,6 +80,7 @@
 //!    and when that world arrives.
 
 use crate::app::background::BackgroundTask;
+use crate::app::background::TaskName;
 use crate::app::dpd_clients;
 use anyhow::Context;
 use anyhow::anyhow;
@@ -101,6 +102,8 @@ use std::sync::Arc;
 use uuid::Uuid;
 
 pub struct SwitchPortPopulator {
+    name: TaskName,
+    description: String,
     rack_id: Uuid,
     datastore: Arc<DataStore>,
     resolver: Resolver,
@@ -109,11 +112,16 @@ pub struct SwitchPortPopulator {
 
 impl SwitchPortPopulator {
     pub fn new(
+        name: TaskName,
+        description: impl ToString,
+
         rack_id: Uuid,
         datastore: Arc<DataStore>,
         resolver: Resolver,
     ) -> Self {
         Self {
+            name,
+            description: description.to_string(),
             rack_id,
             datastore,
             resolver,
@@ -291,6 +299,14 @@ impl SwitchPortPopulator {
 }
 
 impl BackgroundTask for SwitchPortPopulator {
+    fn name(&self) -> &TaskName {
+        &self.name
+    }
+
+    fn description(&self) -> &str {
+        &self.description
+    }
+
     fn activate<'a>(
         &'a mut self,
         opctx: &'a OpContext,
@@ -345,6 +361,8 @@ mod tests {
         cptestctx.stop_dendrite(SwitchSlot::Switch1).await;
 
         let mut task = SwitchPortPopulator::new(
+            crate::app::background::TaskName::new("test_task"),
+            "test task",
             nexus.rack_id(),
             datastore.clone(),
             nexus.resolver().clone(),

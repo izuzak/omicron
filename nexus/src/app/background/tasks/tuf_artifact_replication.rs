@@ -91,6 +91,7 @@ use update_common::artifacts::{
 };
 
 use crate::app::background::BackgroundTask;
+use crate::app::background::TaskName;
 
 // The maximum number of requests to sleds to run at once. This is intended
 // to reduce bandwidth spikes for PUT requests; other requests should return
@@ -412,6 +413,8 @@ impl Request<'_> {
 }
 
 pub struct ArtifactReplication {
+    name: TaskName,
+    description: String,
     datastore: Arc<DataStore>,
     local: Vec<ArtifactsWithPlan>,
     local_rx: mpsc::Receiver<ArtifactsWithPlan>,
@@ -422,6 +425,14 @@ pub struct ArtifactReplication {
 }
 
 impl BackgroundTask for ArtifactReplication {
+    fn name(&self) -> &TaskName {
+        &self.name
+    }
+
+    fn description(&self) -> &str {
+        &self.description
+    }
+
     fn activate<'a>(
         &'a mut self,
         opctx: &'a OpContext,
@@ -552,11 +563,16 @@ impl BackgroundTask for ArtifactReplication {
 
 impl ArtifactReplication {
     pub fn new(
+        name: TaskName,
+        description: impl ToString,
+
         datastore: Arc<DataStore>,
         local_rx: mpsc::Receiver<ArtifactsWithPlan>,
         min_sled_replication: usize,
     ) -> ArtifactReplication {
         ArtifactReplication {
+            name,
+            description: description.to_string(),
             datastore,
             local: Vec::new(),
             local_rx,

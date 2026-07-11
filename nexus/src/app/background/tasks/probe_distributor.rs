@@ -5,6 +5,7 @@
 //! Background task for distributing networking probe zones to sleds.
 
 use crate::app::background::BackgroundTask;
+use crate::app::background::TaskName;
 use futures::FutureExt;
 use futures::future::BoxFuture;
 use nexus_db_queries::context::OpContext;
@@ -22,6 +23,8 @@ use std::sync::Arc;
 use tokio::sync::watch;
 
 pub struct ProbeDistributor {
+    name: TaskName,
+    description: String,
     datastore: Arc<DataStore>,
     // Notify listeners when we're completed. There's currently no data to
     // share, so this is an empty notification.
@@ -29,12 +32,25 @@ pub struct ProbeDistributor {
 }
 
 impl ProbeDistributor {
-    pub fn new(datastore: Arc<DataStore>, tx: watch::Sender<()>) -> Self {
-        Self { datastore, tx }
+    pub fn new(
+        name: TaskName,
+        description: impl ToString,
+        datastore: Arc<DataStore>,
+        tx: watch::Sender<()>,
+    ) -> Self {
+        Self { name, description: description.to_string(), datastore, tx }
     }
 }
 
 impl BackgroundTask for ProbeDistributor {
+    fn name(&self) -> &TaskName {
+        &self.name
+    }
+
+    fn description(&self) -> &str {
+        &self.description
+    }
+
     fn activate<'a>(
         &'a mut self,
         opctx: &'a OpContext,

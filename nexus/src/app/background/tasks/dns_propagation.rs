@@ -6,6 +6,7 @@
 
 use super::dns_servers::DnsServersList;
 use crate::app::background::BackgroundTask;
+use crate::app::background::TaskName;
 use anyhow::Context;
 use futures::FutureExt;
 use futures::StreamExt;
@@ -20,6 +21,8 @@ use tokio::sync::watch;
 
 /// Background task that propagates DNS configuration to DNS servers
 pub struct DnsPropagator {
+    name: TaskName,
+    description: String,
     rx_config: watch::Receiver<Option<DnsConfigParams>>,
     rx_servers: watch::Receiver<Option<DnsServersList>>,
     max_concurrent_server_updates: usize,
@@ -27,15 +30,32 @@ pub struct DnsPropagator {
 
 impl DnsPropagator {
     pub fn new(
+        name: TaskName,
+        description: impl ToString,
+
         rx_config: watch::Receiver<Option<DnsConfigParams>>,
         rx_servers: watch::Receiver<Option<DnsServersList>>,
         max_concurrent_server_updates: usize,
     ) -> DnsPropagator {
-        DnsPropagator { rx_config, rx_servers, max_concurrent_server_updates }
+        DnsPropagator {
+            name,
+            description: description.to_string(),
+            rx_config,
+            rx_servers,
+            max_concurrent_server_updates,
+        }
     }
 }
 
 impl BackgroundTask for DnsPropagator {
+    fn name(&self) -> &TaskName {
+        &self.name
+    }
+
+    fn description(&self) -> &str {
+        &self.description
+    }
+
     fn activate<'a>(
         &'a mut self,
         opctx: &'a OpContext,
@@ -206,7 +226,13 @@ mod test {
 
         let (config_tx, config_rx) = watch::channel(None);
         let (servers_tx, servers_rx) = watch::channel(None);
-        let mut task = DnsPropagator::new(config_rx, servers_rx, 3);
+        let mut task = DnsPropagator::new(
+            crate::app::background::TaskName::new("test_task"),
+            "test task",
+            config_rx,
+            servers_rx,
+            3,
+        );
 
         let dns_config = DnsConfigParams {
             generation: Generation::from_u32(1),

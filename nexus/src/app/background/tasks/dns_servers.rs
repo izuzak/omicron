@@ -5,6 +5,7 @@
 //! Background task for keeping track of DNS servers
 
 use crate::app::background::BackgroundTask;
+use crate::app::background::TaskName;
 use futures::FutureExt;
 use futures::future::BoxFuture;
 use internal_dns_resolver::Resolver;
@@ -24,6 +25,8 @@ pub struct DnsServersList {
 /// Background task that keeps track of the latest list of DNS servers for a DNS
 /// group
 pub struct DnsServersWatcher {
+    name: TaskName,
+    description: String,
     dns_group: DnsGroup,
     resolver: Resolver,
     last: Option<DnsServersList>,
@@ -32,9 +35,22 @@ pub struct DnsServersWatcher {
 }
 
 impl DnsServersWatcher {
-    pub fn new(dns_group: DnsGroup, resolver: Resolver) -> DnsServersWatcher {
+    pub fn new(
+        name: TaskName,
+        description: impl ToString,
+        dns_group: DnsGroup,
+        resolver: Resolver,
+    ) -> DnsServersWatcher {
         let (tx, rx) = watch::channel(None);
-        DnsServersWatcher { dns_group, last: None, tx, rx, resolver }
+        DnsServersWatcher {
+            name,
+            description: description.to_string(),
+            dns_group,
+            last: None,
+            tx,
+            rx,
+            resolver,
+        }
     }
 
     /// Exposes the latest list of DNS servers for this DNS group
@@ -47,6 +63,14 @@ impl DnsServersWatcher {
 }
 
 impl BackgroundTask for DnsServersWatcher {
+    fn name(&self) -> &TaskName {
+        &self.name
+    }
+
+    fn description(&self) -> &str {
+        &self.description
+    }
+
     fn activate<'a>(
         &'a mut self,
         opctx: &'a OpContext,

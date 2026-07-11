@@ -13,6 +13,7 @@
 
 use crate::app::CONTROL_PLANE_STORAGE_BUFFER;
 use crate::app::background::BackgroundTask;
+use crate::app::background::TaskName;
 use futures::FutureExt;
 use futures::future::BoxFuture;
 use nexus_db_model::PhysicalDisk;
@@ -33,6 +34,8 @@ use tokio::sync::watch;
 use uuid::Uuid;
 
 pub struct PhysicalDiskAdoption {
+    name: TaskName,
+    description: String,
     datastore: Arc<DataStore>,
     disable: bool,
     rack_id: Uuid,
@@ -41,12 +44,17 @@ pub struct PhysicalDiskAdoption {
 
 impl PhysicalDiskAdoption {
     pub fn new(
+        name: TaskName,
+        description: impl ToString,
+
         datastore: Arc<DataStore>,
         rx_inventory_collection: watch::Receiver<Option<Arc<Collection>>>,
         disable: bool,
         rack_id: Uuid,
     ) -> Self {
         PhysicalDiskAdoption {
+            name,
+            description: description.to_string(),
             datastore,
             disable,
             rack_id,
@@ -136,6 +144,14 @@ impl PhysicalDiskAdoption {
 }
 
 impl BackgroundTask for PhysicalDiskAdoption {
+    fn name(&self) -> &TaskName {
+        &self.name
+    }
+
+    fn description(&self) -> &str {
+        &self.description
+    }
+
     fn activate<'a>(
         &'a mut self,
         opctx: &'a OpContext,

@@ -5,6 +5,7 @@
 //! Background task that hard-deletes expired console sessions.
 
 use crate::app::background::BackgroundTask;
+use crate::app::background::TaskName;
 use chrono::TimeDelta;
 use chrono::Utc;
 use futures::future::BoxFuture;
@@ -15,6 +16,8 @@ use serde_json::json;
 use std::sync::Arc;
 
 pub struct SessionCleanup {
+    name: TaskName,
+    description: String,
     datastore: Arc<DataStore>,
     absolute_timeout: TimeDelta,
     max_delete_per_activation: u32,
@@ -22,11 +25,20 @@ pub struct SessionCleanup {
 
 impl SessionCleanup {
     pub fn new(
+        name: TaskName,
+        description: impl ToString,
+
         datastore: Arc<DataStore>,
         absolute_timeout: TimeDelta,
         max_delete_per_activation: u32,
     ) -> Self {
-        Self { datastore, absolute_timeout, max_delete_per_activation }
+        Self {
+            name,
+            description: description.to_string(),
+            datastore,
+            absolute_timeout,
+            max_delete_per_activation,
+        }
     }
 
     pub(crate) async fn actually_activate(
@@ -69,6 +81,14 @@ impl SessionCleanup {
 }
 
 impl BackgroundTask for SessionCleanup {
+    fn name(&self) -> &TaskName {
+        &self.name
+    }
+
+    fn description(&self) -> &str {
+        &self.description
+    }
+
     fn activate<'a>(
         &'a mut self,
         opctx: &'a OpContext,
@@ -135,6 +155,8 @@ mod tests {
 
         // absolute_timeout = 24 hours
         let mut task = SessionCleanup::new(
+            crate::app::background::TaskName::new("test_task"),
+            "test task",
             datastore.clone(),
             TimeDelta::try_hours(24).unwrap(),
             10_000,
@@ -196,6 +218,8 @@ mod tests {
 
         // Use a limit of 2 — only 2 should be deleted per activation
         let mut task = SessionCleanup::new(
+            crate::app::background::TaskName::new("test_task"),
+            "test task",
             datastore.clone(),
             TimeDelta::try_hours(24).unwrap(),
             2,

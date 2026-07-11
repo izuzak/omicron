@@ -4,6 +4,7 @@
 
 use crate::app::background::Activator;
 use crate::app::background::BackgroundTask;
+use crate::app::background::TaskName;
 use crate::app::background::tasks::fm_sitrep_load::CurrentSitrep;
 use anyhow::Context;
 use chrono::Utc;
@@ -32,6 +33,8 @@ use tokio::sync::watch;
 
 #[derive(Clone)]
 pub struct FmAnalysis {
+    name: TaskName,
+    description: String,
     datastore: Arc<DataStore>,
     sitrep_rx: watch::Receiver<Option<CurrentSitrep>>,
     inv_rx: watch::Receiver<Option<Arc<inventory::Collection>>>,
@@ -50,6 +53,14 @@ pub struct Activators {
 }
 
 impl BackgroundTask for FmAnalysis {
+    fn name(&self) -> &TaskName {
+        &self.name
+    }
+
+    fn description(&self) -> &str {
+        &self.description
+    }
+
     fn activate<'a>(
         &'a mut self,
         opctx: &'a OpContext,
@@ -91,6 +102,9 @@ impl BackgroundTask for FmAnalysis {
 
 impl FmAnalysis {
     pub fn new(
+        name: TaskName,
+        description: impl ToString,
+
         datastore: Arc<DataStore>,
         sitrep_rx: watch::Receiver<Option<CurrentSitrep>>,
         inv_rx: watch::Receiver<Option<Arc<inventory::Collection>>>,
@@ -99,6 +113,8 @@ impl FmAnalysis {
         analysis_enabled: bool,
     ) -> Self {
         Self {
+            name,
+            description: description.to_string(),
             datastore,
             sitrep_rx,
             inv_rx,
@@ -720,6 +736,8 @@ mod tests {
                 watch::channel(Some(make_current_sitrep(&newer)));
             let (_inv_tx, inv_rx) = watch::channel(Some(older.clone()));
             let mut task = FmAnalysis::new(
+                crate::app::background::TaskName::new("test_task"),
+                "test task",
                 datastore.clone(),
                 sitrep_rx,
                 inv_rx,
@@ -753,6 +771,8 @@ mod tests {
                 watch::channel(Some(make_current_sitrep(&older)));
             let (_inv_tx, inv_rx) = watch::channel(Some(newer.clone()));
             let mut task = FmAnalysis::new(
+                crate::app::background::TaskName::new("test_task"),
+                "test task",
                 datastore.clone(),
                 sitrep_rx,
                 inv_rx,
@@ -779,6 +799,8 @@ mod tests {
             let (_sitrep_tx, sitrep_rx) = watch::channel(None);
             let (_inv_tx, inv_rx) = watch::channel(Some(older.clone()));
             let mut task = FmAnalysis::new(
+                crate::app::background::TaskName::new("test_task"),
+                "test task",
                 datastore.clone(),
                 sitrep_rx,
                 inv_rx,
@@ -809,6 +831,8 @@ mod tests {
                 watch::channel(Some(make_current_sitrep(&older)));
             let (_inv_tx, inv_rx) = watch::channel(Some(older.clone()));
             let mut task = FmAnalysis::new(
+                crate::app::background::TaskName::new("test_task"),
+                "test task",
                 datastore.clone(),
                 sitrep_rx,
                 inv_rx,
@@ -839,6 +863,8 @@ mod tests {
                 watch::channel(Some(make_current_sitrep(&older)));
             let (_inv_tx, inv_rx) = watch::channel(Some(overlapping.clone()));
             let mut task = FmAnalysis::new(
+                crate::app::background::TaskName::new("test_task"),
+                "test task",
                 datastore.clone(),
                 sitrep_rx,
                 inv_rx,
@@ -997,6 +1023,8 @@ mod tests {
         let (_sitrep_tx, sitrep_rx) = watch::channel(None);
         let (_inv_tx, inv_rx) = watch::channel(None);
         let mut task = FmAnalysis::new(
+            crate::app::background::TaskName::new("test_task"),
+            "test task",
             datastore.clone(),
             sitrep_rx,
             inv_rx,

@@ -5,6 +5,7 @@
 //! Background task for preparing and committing trust quorum configurations
 
 use crate::app::background::BackgroundTask;
+use crate::app::background::TaskName;
 use crate::app::rack::rack_subnet;
 use anyhow::{Context, Error, anyhow, bail};
 use futures::future::BoxFuture;
@@ -47,12 +48,18 @@ use trust_quorum_types::types::Epoch;
 
 const MAX_SLED_AGENT_REQUEST_CONCURRENCY: usize = 5;
 pub struct TrustQuorumManager {
+    name: TaskName,
+    description: String,
     datastore: Arc<DataStore>,
 }
 
 impl TrustQuorumManager {
-    pub fn new(datastore: Arc<DataStore>) -> Self {
-        Self { datastore }
+    pub fn new(
+        name: TaskName,
+        description: impl ToString,
+        datastore: Arc<DataStore>,
+    ) -> Self {
+        Self { name, description: description.to_string(), datastore }
     }
 
     async fn activate_impl(
@@ -135,6 +142,14 @@ impl TrustQuorumManager {
 }
 
 impl BackgroundTask for TrustQuorumManager {
+    fn name(&self) -> &TaskName {
+        &self.name
+    }
+
+    fn description(&self) -> &str {
+        &self.description
+    }
+
     fn activate<'a>(
         &'a mut self,
         opctx: &'a OpContext,

@@ -6,6 +6,7 @@
 //! from the DB
 
 use crate::app::background::BackgroundTask;
+use crate::app::background::TaskName;
 use chrono::Utc;
 use futures::future::BoxFuture;
 use nexus_db_queries::context::OpContext;
@@ -19,6 +20,8 @@ use std::sync::Arc;
 use tokio::sync::watch;
 
 pub struct SitrepLoader {
+    name: TaskName,
+    description: String,
     datastore: Arc<DataStore>,
     tx: watch::Sender<Option<CurrentSitrep>>,
 }
@@ -26,6 +29,14 @@ pub struct SitrepLoader {
 pub type CurrentSitrep = Arc<(SitrepVersion, Sitrep)>;
 
 impl BackgroundTask for SitrepLoader {
+    fn name(&self) -> &TaskName {
+        &self.name
+    }
+
+    fn description(&self) -> &str {
+        &self.description
+    }
+
     fn activate<'a>(
         &'a mut self,
         opctx: &'a OpContext,
@@ -48,10 +59,12 @@ impl BackgroundTask for SitrepLoader {
 
 impl SitrepLoader {
     pub fn new(
+        name: TaskName,
+        description: impl ToString,
         datastore: Arc<DataStore>,
         tx: watch::Sender<Option<CurrentSitrep>>,
     ) -> Self {
-        Self { datastore, tx }
+        Self { name, description: description.to_string(), datastore, tx }
     }
 
     #[allow(dead_code)] // subsequent PRs will consume this
@@ -206,7 +219,12 @@ mod test {
         let (opctx, datastore) = (db.opctx(), db.datastore());
 
         let (tx, mut sitrep_rx) = watch::channel(None);
-        let mut task = SitrepLoader::new(datastore.clone(), tx);
+        let mut task = SitrepLoader::new(
+            TaskName::new("test_sitrep_loader"),
+            "test sitrep loader task",
+            datastore.clone(),
+            tx,
+        );
 
         // Initially, there should be no sitrep.
         let status = task.activate(&opctx).await;

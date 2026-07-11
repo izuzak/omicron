@@ -24,6 +24,7 @@
 //! whether a zone without a known node ID ever existed.
 
 use crate::app::background::BackgroundTask;
+use crate::app::background::TaskName;
 use crate::app::background::tasks::blueprint_load::LoadedTargetBlueprint;
 use anyhow::Context;
 use anyhow::ensure;
@@ -44,16 +45,26 @@ use std::sync::Arc;
 use tokio::sync::watch;
 
 pub struct CockroachNodeIdCollector {
+    name: TaskName,
+    description: String,
     datastore: Arc<DataStore>,
     rx_blueprint: watch::Receiver<Option<LoadedTargetBlueprint>>,
 }
 
 impl CockroachNodeIdCollector {
     pub fn new(
+        name: TaskName,
+        description: impl ToString,
+
         datastore: Arc<DataStore>,
         rx_blueprint: watch::Receiver<Option<LoadedTargetBlueprint>>,
     ) -> Self {
-        Self { datastore, rx_blueprint }
+        Self {
+            name,
+            description: description.to_string(),
+            datastore,
+            rx_blueprint,
+        }
     }
 
     /// Implementation for `BackgroundTask::activate`, added here to produce
@@ -217,6 +228,14 @@ async fn ensure_node_id_known(
 }
 
 impl BackgroundTask for CockroachNodeIdCollector {
+    fn name(&self) -> &TaskName {
+        &self.name
+    }
+
+    fn description(&self) -> &str {
+        &self.description
+    }
+
     fn activate<'a>(
         &'a mut self,
         opctx: &'a OpContext,
@@ -338,8 +357,12 @@ mod tests {
         let (opctx, datastore) = (db.opctx(), db.datastore());
 
         let (_tx_blueprint, rx_blueprint) = watch::channel(None);
-        let mut collector =
-            CockroachNodeIdCollector::new(datastore.clone(), rx_blueprint);
+        let mut collector = CockroachNodeIdCollector::new(
+            crate::app::background::TaskName::new("test_task"),
+            "test task",
+            datastore.clone(),
+            rx_blueprint,
+        );
         let result = collector.activate(&opctx).await;
 
         assert_eq!(result, json!({"error": "no blueprint"}));
@@ -379,8 +402,12 @@ mod tests {
                 target: blueprint_target,
                 blueprint: Arc::new(blueprint),
             }));
-        let mut collector =
-            CockroachNodeIdCollector::new(datastore.clone(), rx_blueprint);
+        let mut collector = CockroachNodeIdCollector::new(
+            crate::app::background::TaskName::new("test_task"),
+            "test task",
+            datastore.clone(),
+            rx_blueprint,
+        );
 
         // The blueprint is empty. This should be fine: we should get no
         // successes and no errors.
@@ -442,8 +469,12 @@ mod tests {
                 target: blueprint_target,
                 blueprint: Arc::new(blueprint),
             }));
-        let mut collector =
-            CockroachNodeIdCollector::new(datastore.clone(), rx_blueprint);
+        let mut collector = CockroachNodeIdCollector::new(
+            crate::app::background::TaskName::new("test_task"),
+            "test task",
+            datastore.clone(),
+            rx_blueprint,
+        );
 
         // We'll send in three Cockroach nodes for the collector to gather:
         //

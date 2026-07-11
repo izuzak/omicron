@@ -5,6 +5,7 @@
 //! Background task for propagating VPC routes (system and custom) to sleds.
 
 use crate::app::background::BackgroundTask;
+use crate::app::background::TaskName;
 use futures::FutureExt;
 use futures::future::BoxFuture;
 use nexus_db_model::{Sled, SledState, Vni};
@@ -27,12 +28,18 @@ use std::{
 use uuid::Uuid;
 
 pub struct VpcRouteManager {
+    name: TaskName,
+    description: String,
     datastore: Arc<DataStore>,
 }
 
 impl VpcRouteManager {
-    pub fn new(datastore: Arc<DataStore>) -> Self {
-        Self { datastore }
+    pub fn new(
+        name: TaskName,
+        description: impl ToString,
+        datastore: Arc<DataStore>,
+    ) -> Self {
+        Self { name, description: description.to_string(), datastore }
     }
 }
 
@@ -51,6 +58,14 @@ impl VpcRouteManager {
 // by re-triggering this RPW with a higher generation number, giving us a re-resolved
 // route set and pushing to any relevant sleds.
 impl BackgroundTask for VpcRouteManager {
+    fn name(&self) -> &TaskName {
+        &self.name
+    }
+
+    fn description(&self) -> &str {
+        &self.description
+    }
+
     fn activate<'a>(
         &'a mut self,
         opctx: &'a OpContext,

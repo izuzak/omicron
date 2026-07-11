@@ -150,6 +150,7 @@ use omicron_uuid_kinds::SledUuid;
 use sled_hardware_types::BaseboardId;
 
 use crate::app::background::BackgroundTask;
+use crate::app::background::TaskName;
 use crate::app::multicast::dataplane::MulticastDataplaneClient;
 use crate::app::saga::StartSaga;
 
@@ -200,6 +201,8 @@ pub(crate) struct SwitchBackplanePort {
 /// Background task that reconciles multicast group state with Dendrite
 /// configuration using the Saga + RPW hybrid pattern.
 pub(crate) struct MulticastGroupReconciler {
+    name: TaskName,
+    description: String,
     datastore: Arc<DataStore>,
     resolver: Resolver,
     sagas: Arc<dyn StartSaga>,
@@ -229,6 +232,9 @@ pub(crate) struct MulticastGroupReconciler {
 
 impl MulticastGroupReconciler {
     pub(crate) fn new(
+        name: TaskName,
+        description: impl ToString,
+
         datastore: Arc<DataStore>,
         resolver: Resolver,
         sagas: Arc<dyn StartSaga>,
@@ -238,6 +244,8 @@ impl MulticastGroupReconciler {
         backplane_cache_ttl: Duration,
     ) -> Self {
         Self {
+            name,
+            description: description.to_string(),
             datastore,
             resolver,
             sagas,
@@ -444,6 +452,14 @@ fn map_external_to_underlay_ip_impl(
 }
 
 impl BackgroundTask for MulticastGroupReconciler {
+    fn name(&self) -> &TaskName {
+        &self.name
+    }
+
+    fn description(&self) -> &str {
+        &self.description
+    }
+
     fn activate<'a>(
         &'a mut self,
         opctx: &'a OpContext,

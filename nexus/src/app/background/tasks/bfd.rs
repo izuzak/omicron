@@ -6,6 +6,7 @@
 //! (BFD) sessions.
 
 use crate::app::background::BackgroundTask;
+use crate::app::background::TaskName;
 use crate::app::background::tasks::networking::resolve_mgd_clients;
 use futures::FutureExt;
 use futures::future::BoxFuture;
@@ -26,13 +27,20 @@ use std::{
 };
 
 pub struct BfdManager {
+    name: TaskName,
+    description: String,
     datastore: Arc<DataStore>,
     resolver: Resolver,
 }
 
 impl BfdManager {
-    pub fn new(datastore: Arc<DataStore>, resolver: Resolver) -> Self {
-        Self { datastore, resolver }
+    pub fn new(
+        name: TaskName,
+        description: impl ToString,
+        datastore: Arc<DataStore>,
+        resolver: Resolver,
+    ) -> Self {
+        Self { name, description: description.to_string(), datastore, resolver }
     }
 }
 
@@ -86,6 +94,14 @@ impl From<BfdSession> for BfdSessionKey {
 }
 
 impl BackgroundTask for BfdManager {
+    fn name(&self) -> &TaskName {
+        &self.name
+    }
+
+    fn description(&self) -> &str {
+        &self.description
+    }
+
     fn activate<'a>(
         &'a mut self,
         opctx: &'a OpContext,

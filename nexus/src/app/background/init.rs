@@ -87,8 +87,10 @@
 //! It's not foolproof but hopefully these mechanisms will catch the easy
 //! mistakes.
 
+use super::BackgroundTask;
 use super::Driver;
-use super::driver::{TaskDefinition, TaskIdentity};
+use super::TaskName;
+use super::driver::TaskDefinition;
 use super::tasks::abandoned_vmm_reaper;
 use super::tasks::alert_dispatcher::AlertDispatcher;
 use super::tasks::attached_subnets;
@@ -410,18 +412,16 @@ impl BackgroundTasksInitializer {
 
         {
             let gc = metrics_producer_gc::MetricProducerGc::new(
+                TaskName::new("metrics_producer_gc"),
+                "unregisters Oximeter metrics producers that have not \
+                     renewed their lease",
                 datastore.clone(),
                 PRODUCER_LEASE_DURATION,
             );
 
             driver.register(TaskDefinition {
-                identity: TaskIdentity::new(
-                    "metrics_producer_gc",
-                    "unregisters Oximeter metrics producers that have not \
-                     renewed their lease",
-                ),
+                task: Box::new(gc),
                 period: config.metrics_producer_gc.period_secs,
-                task_impl: Box::new(gc),
                 opctx: opctx.child(BTreeMap::new()),
                 watchers: vec![],
                 activator: task_metrics_producer_gc,
@@ -431,18 +431,16 @@ impl BackgroundTasksInitializer {
         // Background task: External endpoints list watcher
         {
             let watcher = external_endpoints::ExternalEndpointsWatcher::new(
+                TaskName::new("external_endpoints"),
+                "reads config for silos and TLS certificates to determine \
+                     the right set of HTTP endpoints, their HTTP server \
+                     names, and which TLS certificates to use on each one",
                 datastore.clone(),
                 self.external_endpoints_tx,
             );
             driver.register(TaskDefinition {
-                identity: TaskIdentity::new(
-                    "external_endpoints",
-                    "reads config for silos and TLS certificates to determine \
-                     the right set of HTTP endpoints, their HTTP server \
-                     names, and which TLS certificates to use on each one",
-                ),
+                task: Box::new(watcher),
                 period: config.external_endpoints.period_secs,
-                task_impl: Box::new(watcher),
                 opctx: opctx.child(BTreeMap::new()),
                 watchers: vec![],
                 activator: task_external_endpoints,
@@ -450,32 +448,28 @@ impl BackgroundTasksInitializer {
         }
 
         driver.register(TaskDefinition {
-            identity: TaskIdentity::new(
-                "nat_garbage_collector",
+            task: Box::new(nat_cleanup::Ipv4NatGarbageCollector::new(
+                TaskName::new("nat_garbage_collector"),
                 "prunes soft-deleted NAT entries from nat_entry \
                  table based on a predetermined retention policy",
-            ),
-            period: config.nat_cleanup.period_secs,
-            task_impl: Box::new(nat_cleanup::Ipv4NatGarbageCollector::new(
                 datastore.clone(),
                 resolver.clone(),
             )),
+            period: config.nat_cleanup.period_secs,
             opctx: opctx.child(BTreeMap::new()),
             watchers: vec![],
             activator: task_nat_cleanup,
         });
 
         driver.register(TaskDefinition {
-            identity: TaskIdentity::new(
-                "bfd_manager",
+            task: Box::new(bfd::BfdManager::new(
+                TaskName::new("bfd_manager"),
                 "Manages bidirectional fowarding detection (BFD) \
                  configuration on rack switches",
-            ),
-            period: config.bfd_manager.period_secs,
-            task_impl: Box::new(bfd::BfdManager::new(
                 datastore.clone(),
                 resolver.clone(),
             )),
+            period: config.bfd_manager.period_secs,
             opctx: opctx.child(BTreeMap::new()),
             watchers: vec![],
             activator: task_bfd_manager,
@@ -483,15 +477,14 @@ impl BackgroundTasksInitializer {
 
         // Background task: phantom disk detection
         {
-            let detector =
-                phantom_disks::PhantomDiskDetector::new(datastore.clone());
+            let detector = phantom_disks::PhantomDiskDetector::new(
+                TaskName::new("phantom_disks"),
+                "detects and un-deletes phantom disks",
+                datastore.clone(),
+            );
             driver.register(TaskDefinition {
-                identity: TaskIdentity::new(
-                    "phantom_disks",
-                    "detects and un-deletes phantom disks",
-                ),
+                task: Box::new(detector),
                 period: config.phantom_disks.period_secs,
-                task_impl: Box::new(detector),
                 opctx: opctx.child(BTreeMap::new()),
                 watchers: vec![],
                 activator: task_phantom_disks,
@@ -502,6 +495,8 @@ impl BackgroundTasksInitializer {
         //
         // Registration is below so that it can watch the planner.
         let blueprint_loader = blueprint_load::TargetBlueprintLoader::new(
+            TaskName::new("blueprint_loader"),
+            "Loads the current target blueprint from the DB",
             datastore.clone(),
             args.blueprint_load_tx,
         );
@@ -509,6 +504,8 @@ impl BackgroundTasksInitializer {
 
         // Background task: blueprint executor
         let blueprint_executor = blueprint_execution::BlueprintExecutor::new(
+            TaskName::new("blueprint_executor"),
+            "Executes the target blueprint",
             datastore.clone(),
             resolver.clone(),
             rx_blueprint.clone(),
@@ -519,12 +516,8 @@ impl BackgroundTasksInitializer {
         );
         let rx_blueprint_exec = blueprint_executor.watcher();
         driver.register(TaskDefinition {
-            identity: TaskIdentity::new(
-                "blueprint_executor",
-                "Executes the target blueprint",
-            ),
+            task: Box::new(blueprint_executor),
             period: config.blueprints.period_secs_execute,
-            task_impl: Box::new(blueprint_executor),
             opctx: opctx.child(BTreeMap::new()),
             watchers: vec![Box::new(rx_blueprint.clone())],
             activator: task_blueprint_executor,
@@ -537,6 +530,9 @@ impl BackgroundTasksInitializer {
         // blueprint executor runs.
         let inventory_collect_watcher = {
             let collector = inventory_collection::InventoryCollector::new(
+                TaskName::new("inventory_collection"),
+                "collects hardware and software inventory data from the \
+                     whole system",
                 &opctx,
                 datastore.clone(),
                 resolver.clone(),
@@ -546,13 +542,8 @@ impl BackgroundTasksInitializer {
             );
             let inventory_watcher = collector.watcher();
             driver.register(TaskDefinition {
-                identity: TaskIdentity::new(
-                    "inventory_collection",
-                    "collects hardware and software inventory data from the \
-                     whole system",
-                ),
+                task: Box::new(collector),
                 period: config.inventory.period_secs_collect,
-                task_impl: Box::new(collector),
                 opctx: opctx.child(BTreeMap::new()),
                 watchers: vec![Box::new(rx_blueprint_exec.clone())],
                 activator: task_inventory_collection,
@@ -563,34 +554,31 @@ impl BackgroundTasksInitializer {
 
         // Background task: inventory loader
         let inventory_loader = inventory_load::InventoryLoader::new(
+            TaskName::new("inventory_loader"),
+            "loads the latest inventory collection from the DB",
             datastore.clone(),
             self.inventory_load_tx,
         );
         let inventory_load_watcher = inventory_loader.watcher();
         driver.register(TaskDefinition {
-            identity: TaskIdentity::new(
-                "inventory_loader",
-                "loads the latest inventory collection from the DB",
-            ),
+            task: Box::new(inventory_loader),
             period: config.inventory.period_secs_load,
-            task_impl: Box::new(inventory_loader),
             opctx: opctx.child(BTreeMap::new()),
             watchers: vec![Box::new(inventory_collect_watcher.clone())],
             activator: task_inventory_loader,
         });
 
         // Background task: reconfigurator config loader
-        let reconfigurator_config_loader =
-            ReconfiguratorConfigLoader::new(datastore.clone());
+        let reconfigurator_config_loader = ReconfiguratorConfigLoader::new(
+            TaskName::new("reconfigurator_config_watcher"),
+            "watch db for reconfigurator config changes",
+            datastore.clone(),
+        );
         let reconfigurator_config_watcher =
             reconfigurator_config_loader.watcher();
         driver.register(TaskDefinition {
-            identity: TaskIdentity::new(
-                "reconfigurator_config_watcher",
-                "watch db for reconfigurator config changes",
-            ),
+            task: Box::new(reconfigurator_config_loader),
             period: config.blueprints.period_secs_load_reconfigurator_config,
-            task_impl: Box::new(reconfigurator_config_loader),
             opctx: opctx.child(BTreeMap::new()),
             watchers: vec![],
             activator: task_reconfigurator_config_loader,
@@ -601,6 +589,8 @@ impl BackgroundTasksInitializer {
         // Replans on inventory collection and changes to the current
         // target blueprint.
         let blueprint_planner = blueprint_planner::BlueprintPlanner::new(
+            TaskName::new("blueprint_planner"),
+            "Updates the target blueprint",
             datastore.clone(),
             reconfigurator_config_watcher.clone(),
             inventory_load_watcher.clone(),
@@ -609,12 +599,8 @@ impl BackgroundTasksInitializer {
         );
         let rx_planner = blueprint_planner.watcher();
         driver.register(TaskDefinition {
-            identity: TaskIdentity::new(
-                "blueprint_planner",
-                "Updates the target blueprint",
-            ),
+            task: Box::new(blueprint_planner),
             period: config.blueprints.period_secs_plan,
-            task_impl: Box::new(blueprint_planner),
             opctx: opctx.child(BTreeMap::new()),
             watchers: vec![
                 Box::new(inventory_load_watcher.clone()),
@@ -627,12 +613,8 @@ impl BackgroundTasksInitializer {
         // The loader watches the planner so that it can immediately load
         // a new target blueprint.
         driver.register(TaskDefinition {
-            identity: TaskIdentity::new(
-                "blueprint_loader",
-                "Loads the current target blueprint from the DB",
-            ),
+            task: Box::new(blueprint_loader),
             period: config.blueprints.period_secs_load,
-            task_impl: Box::new(blueprint_loader),
             opctx: opctx.child(BTreeMap::new()),
             watchers: vec![Box::new(rx_planner.clone())],
             activator: task_blueprint_loader,
@@ -641,16 +623,14 @@ impl BackgroundTasksInitializer {
         // Background task: CockroachDB node ID collector
         let crdb_node_id_collector =
             crdb_node_id_collector::CockroachNodeIdCollector::new(
+                TaskName::new("crdb_node_id_collector"),
+                "Collects node IDs of running CockroachDB zones",
                 datastore.clone(),
                 rx_blueprint.clone(),
             );
         driver.register(TaskDefinition {
-            identity: TaskIdentity::new(
-                "crdb_node_id_collector",
-                "Collects node IDs of running CockroachDB zones",
-            ),
+            task: Box::new(crdb_node_id_collector),
             period: config.blueprints.period_secs_collect_crdb_node_ids,
-            task_impl: Box::new(crdb_node_id_collector),
             opctx: opctx.child(BTreeMap::new()),
             watchers: vec![Box::new(rx_blueprint.clone())],
             activator: task_crdb_node_id_collector,
@@ -662,121 +642,107 @@ impl BackgroundTasksInitializer {
         // execution may cause bundles to start failing and need garbage
         // collection.
         driver.register(TaskDefinition {
-            identity: TaskIdentity::new(
-                "support_bundle_collector",
-                "Manage support bundle collection and cleanup",
-            ),
-            period: config.support_bundle_collector.period_secs,
-            task_impl: Box::new(
+            task: Box::new(
                 support_bundle_collector::SupportBundleCollector::new(
+                    TaskName::new("support_bundle_collector"),
+                    "Manage support bundle collection and cleanup",
                     datastore.clone(),
                     resolver.clone(),
                     config.support_bundle_collector.disable,
                     nexus_id,
                 ),
             ),
+            period: config.support_bundle_collector.period_secs,
             opctx: opctx.child(BTreeMap::new()),
             watchers: vec![Box::new(rx_blueprint_exec)],
             activator: task_support_bundle_collector,
         });
 
         driver.register(TaskDefinition {
-            identity: TaskIdentity::new(
-                "physical_disk_adoption",
+            task: Box::new(physical_disk_adoption::PhysicalDiskAdoption::new(
+                TaskName::new("physical_disk_adoption"),
                 "ensure new physical disks are automatically marked in-service",
-            ),
+                datastore.clone(),
+                inventory_load_watcher.clone(),
+                config.physical_disk_adoption.disable,
+                rack_id,
+            )),
             period: config.physical_disk_adoption.period_secs,
-            task_impl: Box::new(
-                physical_disk_adoption::PhysicalDiskAdoption::new(
-                    datastore.clone(),
-                    inventory_load_watcher.clone(),
-                    config.physical_disk_adoption.disable,
-                    rack_id,
-                ),
-            ),
             opctx: opctx.child(BTreeMap::new()),
             watchers: vec![Box::new(inventory_load_watcher.clone())],
             activator: task_physical_disk_adoption,
         });
 
         driver.register(TaskDefinition {
-            identity: TaskIdentity::new(
-                "blueprint_rendezvous",
-                "reconciles blueprints and inventory collection, updating \
-                 Reconfigurator-owned rendezvous tables that other subsystems \
-                 consume",
-            ),
-            period: config.blueprints.period_secs_rendezvous,
-            task_impl: Box::new(
+            task: Box::new(
                 blueprint_rendezvous::BlueprintRendezvous::new(
+                    TaskName::new("blueprint_rendezvous"),
+                    "reconciles blueprints and inventory collection, updating \
+                     Reconfigurator-owned rendezvous tables that other subsystems \
+                     consume",
                     datastore.clone(),
                     rx_blueprint.clone(),
                     inventory_load_watcher.clone(),
                 ),
             ),
+            period: config.blueprints.period_secs_rendezvous,
             opctx: opctx.child(BTreeMap::new()),
             watchers: vec![Box::new(inventory_load_watcher.clone())],
             activator: task_blueprint_rendezvous,
         });
 
         driver.register(TaskDefinition {
-            identity: TaskIdentity::new(
-                "decommissioned_disk_cleaner",
-                "deletes DB records for decommissioned disks, after regions \
-                 and region snapshots have been replaced",
-            ),
-            period: config.decommissioned_disk_cleaner.period_secs,
-            task_impl: Box::new(
+            task: Box::new(
                 decommissioned_disk_cleaner::DecommissionedDiskCleaner::new(
+                    TaskName::new("decommissioned_disk_cleaner"),
+                    "deletes DB records for decommissioned disks, after regions \
+                     and region snapshots have been replaced",
                     datastore.clone(),
                     config.decommissioned_disk_cleaner.disable,
                 ),
             ),
+            period: config.decommissioned_disk_cleaner.period_secs,
             opctx: opctx.child(BTreeMap::new()),
             watchers: vec![],
             activator: task_decommissioned_disk_cleaner,
         });
 
         driver.register(TaskDefinition {
-            identity: TaskIdentity::new(
-                "service_zone_nat_tracker",
+            task: Box::new(ServiceZoneNatTracker::new(
+                TaskName::new("service_zone_nat_tracker"),
                 "ensures service zone nat records are recorded in NAT RPW \
                  table",
-            ),
-            period: config.sync_service_zone_nat.period_secs,
-            task_impl: Box::new(ServiceZoneNatTracker::new(
                 datastore.clone(),
                 resolver.clone(),
                 inventory_load_watcher.clone(),
             )),
+            period: config.sync_service_zone_nat.period_secs,
             opctx: opctx.child(BTreeMap::new()),
             watchers: vec![],
             activator: task_service_zone_nat_tracker,
         });
 
         driver.register(TaskDefinition {
-            identity: TaskIdentity::new(
-                "switch_port_config_manager",
+            task: Box::new(SwitchPortSettingsManager::new(
+                TaskName::new("switch_port_config_manager"),
                 "manages switch port settings for rack switches",
-            ),
-            period: config.switch_port_settings_manager.period_secs,
-            task_impl: Box::new(SwitchPortSettingsManager::new(
                 datastore.clone(),
                 resolver.clone(),
                 rx_blueprint.clone(),
             )),
+            period: config.switch_port_settings_manager.period_secs,
             opctx: opctx.child(BTreeMap::new()),
             watchers: vec![],
             activator: task_switch_port_settings_manager,
         });
 
         driver.register(TaskDefinition {
-            identity: TaskIdentity::new(
-                "v2p_manager",
+            task: Box::new(V2PManager::new(
+                TaskName::new("v2p_manager"),
                 "manages opte v2p mappings for vpc networking",
-            ),
+                datastore.clone(),
+            )),
             period: config.v2p_mapping_propagation.period_secs,
-            task_impl: Box::new(V2PManager::new(datastore.clone())),
             opctx: opctx.child(BTreeMap::new()),
             watchers: vec![],
             activator: task_v2p_manager,
@@ -786,18 +752,16 @@ impl BackgroundTasksInitializer {
         // process
         {
             let detector = region_replacement::RegionReplacementDetector::new(
+                TaskName::new("region_replacement"),
+                "detects if a region requires replacing and begins the \
+                     process",
                 datastore.clone(),
                 sagas.clone(),
             );
 
             driver.register(TaskDefinition {
-                identity: TaskIdentity::new(
-                    "region_replacement",
-                    "detects if a region requires replacing and begins the \
-                     process",
-                ),
+                task: Box::new(detector),
                 period: config.region_replacement.period_secs,
-                task_impl: Box::new(detector),
                 opctx: opctx.child(BTreeMap::new()),
                 watchers: vec![],
                 activator: task_region_replacement,
@@ -808,17 +772,15 @@ impl BackgroundTasksInitializer {
         {
             let detector =
                 region_replacement_driver::RegionReplacementDriver::new(
+                    TaskName::new("region_replacement_driver"),
+                    "drive region replacements forward to completion",
                     datastore.clone(),
                     sagas.clone(),
                 );
 
             driver.register(TaskDefinition {
-                identity: TaskIdentity::new(
-                    "region_replacement_driver",
-                    "drive region replacements forward to completion",
-                ),
+                task: Box::new(detector),
                 period: config.region_replacement_driver.period_secs,
-                task_impl: Box::new(detector),
                 opctx: opctx.child(BTreeMap::new()),
                 watchers: vec![],
                 activator: task_region_replacement_driver,
@@ -827,6 +789,8 @@ impl BackgroundTasksInitializer {
 
         {
             let watcher = instance_watcher::InstanceWatcher::new(
+                TaskName::new("instance_watcher"),
+                "periodically checks instance states",
                 datastore.clone(),
                 sagas.clone(),
                 producer_registry,
@@ -835,12 +799,8 @@ impl BackgroundTasksInitializer {
                 instance_watcher::WatcherIdentity { nexus_id, rack_id },
             );
             driver.register(TaskDefinition {
-                identity: TaskIdentity::new(
-                    "instance_watcher",
-                    "periodically checks instance states",
-                ),
+                task: Box::new(watcher),
                 period: config.instance_watcher.period_secs,
-                task_impl: Box::new(watcher),
                 opctx: opctx.child(BTreeMap::new()),
                 watchers: vec![],
                 activator: task_instance_watcher,
@@ -851,14 +811,15 @@ impl BackgroundTasksInitializer {
         // state updates.
         {
             let updater = instance_updater::InstanceUpdater::new(
+                TaskName::new("instance_updater"),
+                "detects if instances require update sagas and schedules them",
                 datastore.clone(),
                 sagas.clone(),
                 config.instance_updater.disable,
             );
-            driver.register( TaskDefinition {
-                identity: TaskIdentity::new("instance_updater", "detects if instances require update sagas and schedules them"),
+            driver.register(TaskDefinition {
+                task: Box::new(updater),
                 period: config.instance_watcher.period_secs,
-                task_impl: Box::new(updater),
                 opctx: opctx.child(BTreeMap::new()),
                 watchers: vec![],
                 activator: task_instance_updater,
@@ -870,19 +831,17 @@ impl BackgroundTasksInitializer {
         {
             let reincarnator =
                 instance_reincarnation::InstanceReincarnation::new(
+                    TaskName::new("instance_reincarnation"),
+                    "schedules start sagas for failed instances that \
+                         can be automatically restarted",
                     datastore.clone(),
                     sagas.clone(),
                     config.instance_reincarnation.disable,
                     task_multicast_reconciler.clone(),
                 );
             driver.register(TaskDefinition {
-                identity: TaskIdentity::new(
-                    "instance_reincarnation",
-                    "schedules start sagas for failed instances that \
-                    can be automatically restarted",
-                ),
+                task: Box::new(reincarnator),
                 period: config.instance_reincarnation.period_secs,
-                task_impl: Box::new(reincarnator),
                 opctx: opctx.child(BTreeMap::new()),
                 watchers: vec![],
                 activator: task_instance_reincarnation,
@@ -891,17 +850,13 @@ impl BackgroundTasksInitializer {
 
         // Background task: service firewall rule propagation
         driver.register(TaskDefinition {
-            identity: TaskIdentity::new(
-                "service_firewall_rule_propagation",
+            task: Box::new(service_firewall_rules::ServiceRulePropagator::new(
+                TaskName::new("service_firewall_rule_propagation"),
                 "propagates VPC firewall rules for Omicron services with \
-                 external network connectivity",
-            ),
+                         external network connectivity",
+                datastore.clone(),
+            )),
             period: config.service_firewall_propagation.period_secs,
-            task_impl: Box::new(
-                service_firewall_rules::ServiceRulePropagator::new(
-                    datastore.clone(),
-                ),
-            ),
             opctx: opctx.child(BTreeMap::new()),
             watchers: vec![],
             activator: task_service_firewall_propagation,
@@ -915,14 +870,14 @@ impl BackgroundTasksInitializer {
         // when the probe task is activated.
         let (vpc_route_manager_tx, vpc_route_manager_rx) = watch::channel(());
         {
-            let watcher = vpc_routes::VpcRouteManager::new(datastore.clone());
+            let watcher = vpc_routes::VpcRouteManager::new(
+                TaskName::new("vpc_route_manager"),
+                "propagates updated VPC routes to all OPTE ports",
+                datastore.clone(),
+            );
             driver.register(TaskDefinition {
-                identity: TaskIdentity::new(
-                    "vpc_route_manager",
-                    "propagates updated VPC routes to all OPTE ports",
-                ),
+                task: Box::new(watcher),
                 period: config.switch_port_settings_manager.period_secs,
-                task_impl: Box::new(watcher),
                 opctx: opctx.child(BTreeMap::new()),
                 watchers: vec![Box::new(vpc_route_manager_rx)],
                 activator: task_vpc_route_manager,
@@ -931,15 +886,13 @@ impl BackgroundTasksInitializer {
 
         // Background task: abandoned VMM reaping
         driver.register(TaskDefinition {
-            identity: TaskIdentity::new(
-                "abandoned_vmm_reaper",
+            task: Box::new(abandoned_vmm_reaper::AbandonedVmmReaper::new(
+                TaskName::new("abandoned_vmm_reaper"),
                 "deletes sled reservations for VMMs that have been abandoned \
-                 by their instances",
-            ),
-            period: config.abandoned_vmm_reaper.period_secs,
-            task_impl: Box::new(abandoned_vmm_reaper::AbandonedVmmReaper::new(
+                         by their instances",
                 datastore.clone(),
             )),
+            period: config.abandoned_vmm_reaper.period_secs,
             opctx: opctx.child(BTreeMap::new()),
             watchers: vec![],
             activator: task_abandoned_vmm_reaper,
@@ -947,19 +900,17 @@ impl BackgroundTasksInitializer {
 
         // Background task: saga recovery
         {
-            let task_impl = Box::new(saga_recovery::SagaRecovery::new(
+            let saga_recovery = saga_recovery::SagaRecovery::new(
+                TaskName::new("saga_recovery"),
+                "recovers sagas assigned to this Nexus",
                 datastore.clone(),
                 nexus_db_model::SecId::from(args.nexus_id),
                 args.saga_recovery,
-            ));
+            );
 
             driver.register(TaskDefinition {
-                identity: TaskIdentity::new(
-                    "saga_recovery",
-                    "recovers sagas assigned to this Nexus",
-                ),
+                task: Box::new(saga_recovery),
                 period: config.saga_recovery.period_secs,
-                task_impl,
                 opctx: opctx.child(BTreeMap::new()),
                 watchers: vec![],
                 activator: task_saga_recovery,
@@ -967,143 +918,123 @@ impl BackgroundTasksInitializer {
         }
 
         driver.register(TaskDefinition {
-            identity: TaskIdentity::new(
-                "lookup_region_port",
+            task: Box::new(lookup_region_port::LookupRegionPort::new(
+                TaskName::new("lookup_region_port"),
                 "fill in missing ports for region records",
-            ),
-            period: config.lookup_region_port.period_secs,
-            task_impl: Box::new(lookup_region_port::LookupRegionPort::new(
                 datastore.clone(),
             )),
+            period: config.lookup_region_port.period_secs,
             opctx: opctx.child(BTreeMap::new()),
             watchers: vec![],
             activator: task_lookup_region_port,
         });
 
         driver.register(TaskDefinition {
-            identity: TaskIdentity::new(
-                "region_snapshot_replacement_start",
+            task: Box::new(RegionSnapshotReplacementDetector::new(
+                TaskName::new("region_snapshot_replacement_start"),
                 "detect if region snapshots need replacement and begin the \
-                process",
-            ),
-            period: config.region_snapshot_replacement_start.period_secs,
-            task_impl: Box::new(RegionSnapshotReplacementDetector::new(
+                         process",
                 datastore.clone(),
                 sagas.clone(),
             )),
+            period: config.region_snapshot_replacement_start.period_secs,
             opctx: opctx.child(BTreeMap::new()),
             watchers: vec![],
             activator: task_region_snapshot_replacement_start,
         });
 
         driver.register(TaskDefinition {
-            identity: TaskIdentity::new(
-                "region_snapshot_replacement_garbage_collection",
+            task: Box::new(RegionSnapshotReplacementGarbageCollect::new(
+                TaskName::new("region_snapshot_replacement_garbage_collection"),
                 "clean up all region snapshot replacement step volumes",
-            ),
-            period: config
-                .region_snapshot_replacement_garbage_collection
-                .period_secs,
-            task_impl: Box::new(RegionSnapshotReplacementGarbageCollect::new(
                 datastore.clone(),
                 sagas.clone(),
             )),
+            period: config
+                .region_snapshot_replacement_garbage_collection
+                .period_secs,
             opctx: opctx.child(BTreeMap::new()),
             watchers: vec![],
             activator: task_region_snapshot_replacement_garbage_collection,
         });
 
         driver.register(TaskDefinition {
-            identity: TaskIdentity::new(
-                "region_snapshot_replacement_step",
+            task: Box::new(RegionSnapshotReplacementFindAffected::new(
+                TaskName::new("region_snapshot_replacement_step"),
                 "detect what volumes were affected by a region snapshot \
-                replacement, and run the step saga for them",
-            ),
-            period: config.region_snapshot_replacement_step.period_secs,
-            task_impl: Box::new(RegionSnapshotReplacementFindAffected::new(
+                         replacement, and run the step saga for them",
                 datastore.clone(),
                 sagas.clone(),
             )),
+            period: config.region_snapshot_replacement_step.period_secs,
             opctx: opctx.child(BTreeMap::new()),
             watchers: vec![],
             activator: task_region_snapshot_replacement_step,
         });
 
         driver.register(TaskDefinition {
-            identity: TaskIdentity::new(
-                "region_snapshot_replacement_finish",
+            task: Box::new(RegionSnapshotReplacementFinishDetector::new(
+                TaskName::new("region_snapshot_replacement_finish"),
                 "complete a region snapshot replacement if all the steps are \
-                done",
-            ),
-            period: config.region_snapshot_replacement_finish.period_secs,
-            task_impl: Box::new(RegionSnapshotReplacementFinishDetector::new(
+                         done",
                 datastore.clone(),
                 sagas.clone(),
             )),
+            period: config.region_snapshot_replacement_finish.period_secs,
             opctx: opctx.child(BTreeMap::new()),
             watchers: vec![],
             activator: task_region_snapshot_replacement_finish,
         });
 
         driver.register(TaskDefinition {
-            identity: TaskIdentity::new(
-                "tuf_artifact_replication",
+            task: Box::new(tuf_artifact_replication::ArtifactReplication::new(
+                TaskName::new("tuf_artifact_replication"),
                 "replicate update repo artifacts across sleds",
-            ),
+                datastore.clone(),
+                args.tuf_artifact_replication_rx,
+                config.tuf_artifact_replication.min_sled_replication,
+            )),
             period: config.tuf_artifact_replication.period_secs,
-            task_impl: Box::new(
-                tuf_artifact_replication::ArtifactReplication::new(
-                    datastore.clone(),
-                    args.tuf_artifact_replication_rx,
-                    config.tuf_artifact_replication.min_sled_replication,
-                ),
-            ),
             opctx: opctx.child(BTreeMap::new()),
             watchers: vec![],
             activator: task_tuf_artifact_replication,
         });
 
         driver.register(TaskDefinition {
-            identity: TaskIdentity::new(
-                "tuf_repo_pruner",
+            task: Box::new(tuf_repo_pruner::TufRepoPruner::new(
+                TaskName::new("tuf_repo_pruner"),
                 "determine which TUF repos' artifacts can be pruned",
-            ),
-            period: config.tuf_repo_pruner.period_secs,
-            task_impl: Box::new(tuf_repo_pruner::TufRepoPruner::new(
                 datastore.clone(),
                 config.tuf_repo_pruner.clone(),
                 reconfigurator_config_watcher.clone(),
             )),
+            period: config.tuf_repo_pruner.period_secs,
             opctx: opctx.child(BTreeMap::new()),
             watchers: vec![Box::new(reconfigurator_config_watcher)],
             activator: task_tuf_repo_pruner,
         });
 
         driver.register(TaskDefinition {
-            identity: TaskIdentity::new(
-                "read_only_region_replacement_start",
+            task: Box::new(ReadOnlyRegionReplacementDetector::new(
+                TaskName::new("read_only_region_replacement_start"),
                 "detect if read-only regions need replacement and begin the \
-                process",
-            ),
-            period: config.read_only_region_replacement_start.period_secs,
-            task_impl: Box::new(ReadOnlyRegionReplacementDetector::new(
+                         process",
                 datastore.clone(),
             )),
+            period: config.read_only_region_replacement_start.period_secs,
             opctx: opctx.child(BTreeMap::new()),
             watchers: vec![],
             activator: task_read_only_region_replacement_start,
         });
 
         driver.register(TaskDefinition {
-            identity: TaskIdentity::new(
-                "alert_dispatcher",
+            task: Box::new(AlertDispatcher::new(
+                TaskName::new("alert_dispatcher"),
                 "dispatches queued alerts to receivers",
-            ),
-            period: config.alert_dispatcher.period_secs,
-            task_impl: Box::new(AlertDispatcher::new(
                 datastore.clone(),
                 task_webhook_deliverator.clone(),
             )),
+            period: config.alert_dispatcher.period_secs,
             opctx: opctx.child(BTreeMap::new()),
             watchers: vec![],
             activator: task_alert_dispatcher,
@@ -1134,19 +1065,15 @@ impl BackgroundTasksInitializer {
                 ),
             };
             TaskDefinition {
-                identity: TaskIdentity::new(
-                    "webhook_deliverator",
+                task: Box::new(webhook_deliverator::WebhookDeliverator::new(
+                    TaskName::new("webhook_deliverator"),
                     "sends webhook delivery requests",
-                ),
+                    datastore.clone(),
+                    cfg,
+                    nexus_id,
+                    args.webhook_delivery_client,
+                )),
                 period: period_secs,
-                task_impl: Box::new(
-                    webhook_deliverator::WebhookDeliverator::new(
-                        datastore.clone(),
-                        cfg,
-                        nexus_id,
-                        args.webhook_delivery_client,
-                    ),
-                ),
                 opctx: opctx.child(BTreeMap::new()),
                 watchers: vec![],
                 activator: task_webhook_deliverator,
@@ -1154,9 +1081,10 @@ impl BackgroundTasksInitializer {
         });
 
         driver.register(TaskDefinition {
-            identity: TaskIdentity::new("multicast_reconciler", "reconciles multicast group and member state with dendrite switch configuration"),
-            period: config.multicast_reconciler.period_secs,
-            task_impl: Box::new(MulticastGroupReconciler::new(
+            task: Box::new(MulticastGroupReconciler::new(
+                TaskName::new("multicast_reconciler"),
+                "reconciles multicast group and member state with dendrite \
+                 switch configuration",
                 datastore.clone(),
                 resolver.clone(),
                 sagas.clone(),
@@ -1165,18 +1093,16 @@ impl BackgroundTasksInitializer {
                 config.multicast_reconciler.sled_cache_ttl_secs,
                 config.multicast_reconciler.backplane_cache_ttl_secs,
             )),
+            period: config.multicast_reconciler.period_secs,
             opctx: opctx.child(BTreeMap::new()),
             watchers: vec![Box::new(inventory_load_watcher.clone())],
             activator: task_multicast_reconciler,
         });
 
         driver.register(TaskDefinition {
-            identity: TaskIdentity::new(
-                "sp_ereport_ingester",
+            task: Box::new(ereport_ingester::SpEreportIngester::new(
+                TaskName::new("sp_ereport_ingester"),
                 "collects error reports from service processors",
-            ),
-            period: config.sp_ereport_ingester.period_secs,
-            task_impl: Box::new(ereport_ingester::SpEreportIngester::new(
                 datastore.clone(),
                 resolver.clone(),
                 nexus_id,
@@ -1184,30 +1110,31 @@ impl BackgroundTasksInitializer {
                 task_fm_analysis.clone(),
                 config.sp_ereport_ingester.disable,
             )),
+            period: config.sp_ereport_ingester.period_secs,
             opctx: opctx.child(BTreeMap::new()),
             watchers: vec![],
             activator: task_sp_ereport_ingester,
         });
 
         let sitrep_loader = fm_sitrep_load::SitrepLoader::new(
+            TaskName::new("fm_sitrep_loader"),
+            "loads the current fault management situation report from \
+                 the database",
             datastore.clone(),
             args.sitrep_load_tx,
         );
         let sitrep_watcher = sitrep_loader.watcher();
         driver.register(TaskDefinition {
-            identity: TaskIdentity::new(
-                "fm_sitrep_loader",
-                "loads the current fault management situation report from \
-                 the database",
-            ),
+            task: Box::new(sitrep_loader),
             period: config.fm.sitrep_load_period_secs,
-            task_impl: Box::new(sitrep_loader),
             opctx: opctx.child(BTreeMap::new()),
             watchers: vec![],
             activator: task_fm_sitrep_loader,
         });
 
         let fm_analysis = FmAnalysis::new(
+            TaskName::new("fm_analysis"),
+            "performs fault management analysis and updates the sitrep",
             datastore.clone(),
             sitrep_watcher.clone(),
             inventory_load_watcher.clone(),
@@ -1220,12 +1147,8 @@ impl BackgroundTasksInitializer {
             config.fm.analysis_enabled,
         );
         driver.register(TaskDefinition {
-            identity: TaskIdentity::new(
-                "fm_analysis",
-                "performs fault management analysis and updates the sitrep",
-            ),
+            task: Box::new(fm_analysis),
             period: config.fm.analysis_period_secs,
-            task_impl: Box::new(fm_analysis),
             opctx: opctx.child(BTreeMap::new()),
             watchers: vec![
                 Box::new(sitrep_watcher.clone()),
@@ -1235,13 +1158,10 @@ impl BackgroundTasksInitializer {
         });
 
         driver.register(TaskDefinition {
-            identity: TaskIdentity::new(
-                "fm_rendezvous",
+            task: Box::new(FmRendezvous::new(
+                TaskName::new("fm_rendezvous"),
                 "updates externally visible database tables to match the \
                  current fault management sitrep",
-            ),
-            period: config.fm.rendezvous_period_secs,
-            task_impl: Box::new(FmRendezvous::new(
                 datastore.clone(),
                 sitrep_watcher.clone(),
                 task_alert_dispatcher.clone(),
@@ -1249,93 +1169,83 @@ impl BackgroundTasksInitializer {
                 task_fm_sitrep_loader.clone(),
                 nexus_id,
             )),
+            period: config.fm.rendezvous_period_secs,
             opctx: opctx.child(BTreeMap::new()),
             watchers: vec![Box::new(sitrep_watcher.clone())],
             activator: task_fm_rendezvous,
         });
 
         driver.register(TaskDefinition {
-            identity: TaskIdentity::new(
-                "fm_sitrep_gc",
+            task: Box::new(fm_sitrep_gc::SitrepGc::new(
+                TaskName::new("fm_sitrep_gc"),
                 "garbage collects fault management situation reports",
-            ),
+                datastore.clone(),
+            )),
             period: config.fm.sitrep_load_period_secs,
-            task_impl: Box::new(fm_sitrep_gc::SitrepGc::new(datastore.clone())),
             opctx: opctx.child(BTreeMap::new()),
             watchers: vec![Box::new(sitrep_watcher)],
             activator: task_fm_sitrep_gc,
         });
 
         driver.register(TaskDefinition {
-            identity: TaskIdentity::new(
-                "probe_distributor",
+            task: Box::new(probe_distributor::ProbeDistributor::new(
+                TaskName::new("probe_distributor"),
                 "distributes networking probe zones to sleds",
-            ),
-            period: config.probe_distributor.period_secs,
-            task_impl: Box::new(probe_distributor::ProbeDistributor::new(
                 datastore.clone(),
                 vpc_route_manager_tx,
             )),
+            period: config.probe_distributor.period_secs,
             opctx: opctx.child(BTreeMap::new()),
             watchers: vec![],
             activator: task_probe_distributor,
         });
 
         driver.register(TaskDefinition {
-            identity: TaskIdentity::new(
-                "trust_quorum_manager",
+            task: Box::new(trust_quorum::TrustQuorumManager::new(
+                TaskName::new("trust_quorum_manager"),
                 "Drive trust quorum reconfigurations to completion",
-            ),
-            period: config.trust_quorum.period_secs,
-            task_impl: Box::new(trust_quorum::TrustQuorumManager::new(
                 datastore.clone(),
             )),
+            period: config.trust_quorum.period_secs,
             opctx: opctx.child(BTreeMap::new()),
             watchers: vec![],
             activator: task_trust_quorum_manager,
         });
 
         driver.register(TaskDefinition {
-            identity: TaskIdentity::new(
-                "attached_subnet_manager",
+            task: Box::new(attached_subnets::Manager::new(
+                TaskName::new("attached_subnet_manager"),
                 "distributes attached subnets to sleds and switch",
-            ),
-            period: config.attached_subnet_manager.period_secs,
-            task_impl: Box::new(attached_subnets::Manager::new(
                 resolver.clone(),
                 datastore.clone(),
             )),
+            period: config.attached_subnet_manager.period_secs,
             opctx: opctx.child(BTreeMap::new()),
             watchers: vec![],
             activator: task_attached_subnet_manager,
         });
 
         driver.register(TaskDefinition {
-            identity: TaskIdentity::new(
-                "session_cleanup",
+            task: Box::new(session_cleanup::SessionCleanup::new(
+                TaskName::new("session_cleanup"),
                 "hard-deletes expired console sessions based on \
                  absolute timeout",
-            ),
-            period: config.session_cleanup.period_secs,
-            task_impl: Box::new(session_cleanup::SessionCleanup::new(
                 datastore.clone(),
                 args.console_session_absolute_timeout,
                 config.session_cleanup.max_delete_per_activation,
             )),
+            period: config.session_cleanup.period_secs,
             opctx: opctx.child(BTreeMap::new()),
             watchers: vec![],
             activator: task_session_cleanup,
         });
 
         driver.register(TaskDefinition {
-            identity: TaskIdentity::new(
-                "audit_log_timeout_incomplete",
-                "transitions stale incomplete audit log entries to \
-                 timeout status so they become visible in the audit log",
-            ),
-            period: config.audit_log_timeout_incomplete.period_secs,
-            task_impl: Box::new(
+            task: Box::new(
                 audit_log_timeout_incomplete::AuditLogTimeoutIncomplete::new(
+                    TaskName::new("audit_log_timeout_incomplete"),
+                    "transitions stale incomplete audit log entries to \
+                     timeout status so they become visible in the audit log",
                     datastore.clone(),
                     config.audit_log_timeout_incomplete.timeout_secs,
                     config
@@ -1343,42 +1253,37 @@ impl BackgroundTasksInitializer {
                         .max_timed_out_per_activation,
                 ),
             ),
+            period: config.audit_log_timeout_incomplete.period_secs,
             opctx: opctx.child(BTreeMap::new()),
             watchers: vec![],
             activator: task_audit_log_timeout_incomplete,
         });
 
         driver.register(TaskDefinition {
-            identity: TaskIdentity::new(
-                "audit_log_cleanup",
+            task: Box::new(audit_log_cleanup::AuditLogCleanup::new(
+                TaskName::new("audit_log_cleanup"),
                 "hard-deletes completed audit log entries older \
                  than the retention period",
-            ),
-            period: config.audit_log_cleanup.period_secs,
-            task_impl: Box::new(audit_log_cleanup::AuditLogCleanup::new(
                 datastore.clone(),
                 config.audit_log_cleanup.retention_days,
                 config.audit_log_cleanup.max_deleted_per_activation,
             )),
+            period: config.audit_log_cleanup.period_secs,
             opctx: opctx.child(BTreeMap::new()),
             watchers: vec![],
             activator: task_audit_log_cleanup,
         });
 
         driver.register(TaskDefinition {
-            identity: TaskIdentity::new(
-                "populate_switch_ports",
+            task: Box::new(populate_switch_ports::SwitchPortPopulator::new(
+                TaskName::new("populate_switch_ports"),
                 "one-time population of the `switch_port` table \
                 containing all QSFP ports managed by dendrite",
-            ),
+                rack_id,
+                datastore.clone(),
+                resolver.clone(),
+            )),
             period: config.populate_switch_ports.period_secs,
-            task_impl: Box::new(
-                populate_switch_ports::SwitchPortPopulator::new(
-                    rack_id,
-                    datastore.clone(),
-                    resolver.clone(),
-                ),
-            ),
             opctx: opctx.child(BTreeMap::new()),
             watchers: vec![],
             activator: task_populate_switch_ports,
@@ -1448,36 +1353,42 @@ fn init_dns(
     let metadata = BTreeMap::from([("dns_group".to_string(), dns_group_name)]);
 
     // Background task: DNS config watcher
-    let dns_config =
-        dns_config::DnsConfigWatcher::new(Arc::clone(&datastore), dns_group);
+    let dns_config_name = TaskName::new(format!("dns_config_{}", dns_group));
+    let dns_config_description =
+        format!("watches {} DNS data stored in CockroachDB", dns_group);
+    let task_name_config = dns_config_name.as_str().to_string();
+    let dns_config = dns_config::DnsConfigWatcher::new(
+        dns_config_name,
+        dns_config_description,
+        Arc::clone(&datastore),
+        dns_group,
+    );
     let dns_config_watcher = dns_config.watcher();
-    let task_name_config = format!("dns_config_{}", dns_group);
     driver.register(TaskDefinition {
-        identity: TaskIdentity::new(
-            task_name_config.clone(),
-            format!("watches {} DNS data stored in CockroachDB", dns_group),
-        ),
+        task: Box::new(dns_config),
         period: config.period_secs_config,
-        task_impl: Box::new(dns_config),
         opctx: opctx.child(metadata.clone()),
         watchers: vec![],
         activator: task_config,
     });
 
     // Background task: DNS server list watcher
-    let dns_servers = dns_servers::DnsServersWatcher::new(dns_group, resolver);
+    let dns_servers_name = TaskName::new(format!("dns_servers_{}", dns_group));
+    let dns_servers_description = format!(
+        "watches list of {} DNS servers stored in internal DNS",
+        dns_group,
+    );
+    let dns_servers = dns_servers::DnsServersWatcher::new(
+        dns_servers_name,
+        dns_servers_description,
+        dns_group,
+        resolver,
+    );
     let dns_servers_watcher = dns_servers.watcher();
-    let task_name_servers = format!("dns_servers_{}", dns_group);
+    let task_name_servers = dns_servers.name().as_str().to_string();
     driver.register(TaskDefinition {
-        identity: TaskIdentity::new(
-            task_name_servers.clone(),
-            format!(
-                "watches list of {} DNS servers stored in internal DNS",
-                dns_group,
-            ),
-        ),
+        task: Box::new(dns_servers),
         period: config.period_secs_servers,
-        task_impl: Box::new(dns_servers),
         opctx: opctx.child(metadata.clone()),
         watchers: vec![],
         activator: task_servers,
@@ -1485,22 +1396,20 @@ fn init_dns(
 
     // Background task: DNS propagation
     let dns_propagate = dns_propagation::DnsPropagator::new(
+        TaskName::new(format!("dns_propagation_{}", dns_group)),
+        format!(
+            "propagates latest {} DNS configuration (from {:?} background \
+              task) to the latest list of DNS servers (from {:?} background \
+              task)",
+            dns_group, task_name_config, task_name_servers,
+        ),
         dns_config_watcher.clone(),
         dns_servers_watcher.clone(),
         config.max_concurrent_server_updates,
     );
     driver.register(TaskDefinition {
-        identity: TaskIdentity::new(
-            format!("dns_propagation_{}", dns_group),
-            format!(
-                "propagates latest {} DNS configuration (from {:?} background \
-             task) to the latest list of DNS servers (from {:?} background \
-             task)",
-                dns_group, task_name_config, task_name_servers,
-            ),
-        ),
+        task: Box::new(dns_propagate),
         period: config.period_secs_propagation,
-        task_impl: Box::new(dns_propagate),
         opctx: opctx.child(metadata),
         watchers: vec![
             Box::new(dns_config_watcher),

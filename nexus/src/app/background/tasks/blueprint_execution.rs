@@ -5,6 +5,7 @@
 //! Background task for realizing a plan blueprint
 
 use crate::app::{
+    background::TaskName,
     background::{Activator, BackgroundTask, LoadedTargetBlueprint},
     quiesce::NexusQuiesceHandle,
 };
@@ -27,6 +28,8 @@ use update_engine::NestedError;
 /// Background task that takes a `Blueprint` and realizes the change to
 /// the state of the system based on the `Blueprint`.
 pub struct BlueprintExecutor {
+    name: TaskName,
+    description: String,
     datastore: Arc<DataStore>,
     resolver: Resolver,
     rx_blueprint: watch::Receiver<Option<LoadedTargetBlueprint>>,
@@ -39,6 +42,8 @@ pub struct BlueprintExecutor {
 
 impl BlueprintExecutor {
     pub fn new(
+        name: TaskName,
+        description: impl ToString,
         datastore: Arc<DataStore>,
         resolver: Resolver,
         rx_blueprint: watch::Receiver<Option<LoadedTargetBlueprint>>,
@@ -49,6 +54,8 @@ impl BlueprintExecutor {
     ) -> BlueprintExecutor {
         let (tx, _) = watch::channel(0);
         BlueprintExecutor {
+            name,
+            description: description.to_string(),
             datastore,
             resolver,
             rx_blueprint,
@@ -207,6 +214,14 @@ impl BlueprintExecutor {
 }
 
 impl BackgroundTask for BlueprintExecutor {
+    fn name(&self) -> &TaskName {
+        &self.name
+    }
+
+    fn description(&self) -> &str {
+        &self.description
+    }
+
     fn activate<'a>(
         &'a mut self,
         opctx: &'a OpContext,
@@ -218,6 +233,7 @@ impl BackgroundTask for BlueprintExecutor {
 #[cfg(test)]
 mod test {
     use super::BlueprintExecutor;
+    use crate::app::background::TaskName;
     use crate::app::background::{
         Activator, BackgroundTask, LoadedTargetBlueprint,
     };
@@ -432,6 +448,8 @@ mod test {
         let (blueprint_tx, blueprint_rx) = watch::channel(None);
         let (dummy_tx, _dummy_rx) = watch::channel(PendingMgsUpdates::new());
         let mut task = BlueprintExecutor::new(
+            TaskName::new("test_blueprint_executor"),
+            "test blueprint executor task",
             datastore.clone(),
             resolver.clone(),
             blueprint_rx.clone(),

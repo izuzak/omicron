@@ -5,6 +5,7 @@
 //! Background task for managing Support Bundles
 
 use crate::app::background::BackgroundTask;
+use crate::app::background::TaskName;
 use anyhow::Context;
 use camino::Utf8Path;
 use camino_tempfile::Utf8TempDir;
@@ -73,6 +74,8 @@ enum DatabaseBundleCleanupResult {
 
 /// The background task responsible for cleaning and collecting support bundles
 pub struct SupportBundleCollector {
+    name: TaskName,
+    description: String,
     datastore: Arc<DataStore>,
     resolver: Resolver,
     disable: bool,
@@ -82,12 +85,17 @@ pub struct SupportBundleCollector {
 
 impl SupportBundleCollector {
     pub fn new(
+        name: TaskName,
+        description: impl ToString,
+
         datastore: Arc<DataStore>,
         resolver: Resolver,
         disable: bool,
         nexus_id: OmicronZoneUuid,
     ) -> Self {
         SupportBundleCollector {
+            name,
+            description: description.to_string(),
             datastore,
             resolver,
             disable,
@@ -664,6 +672,14 @@ async fn sha2_hash(file: &mut tokio::fs::File) -> anyhow::Result<ArtifactHash> {
 }
 
 impl BackgroundTask for SupportBundleCollector {
+    fn name(&self) -> &TaskName {
+        &self.name
+    }
+
+    fn description(&self) -> &str {
+        &self.description
+    }
+
     fn activate<'a>(
         &'a mut self,
         opctx: &'a OpContext,
@@ -757,6 +773,8 @@ mod test {
             datastore.clone(),
         );
         let collector = SupportBundleCollector::new(
+            crate::app::background::TaskName::new("test_task"),
+            "test task",
             datastore.clone(),
             resolver.clone(),
             false,
@@ -783,6 +801,8 @@ mod test {
             datastore.clone(),
         );
         let collector = SupportBundleCollector::new(
+            crate::app::background::TaskName::new("test_task"),
+            "test task",
             datastore.clone(),
             resolver.clone(),
             false,
@@ -1121,6 +1141,8 @@ mod test {
         assert_eq!(bundle.state, SupportBundleState::Collecting);
 
         let collector = SupportBundleCollector::new(
+            crate::app::background::TaskName::new("test_task"),
+            "test task",
             datastore.clone(),
             resolver.clone(),
             false,
@@ -1215,6 +1237,8 @@ mod test {
             .expect("Couldn't allocate a support bundle");
 
         let collector = SupportBundleCollector::new(
+            crate::app::background::TaskName::new("test_task"),
+            "test task",
             datastore.clone(),
             resolver.clone(),
             false,
@@ -1328,6 +1352,8 @@ mod test {
         assert_eq!(bundle.state, SupportBundleState::Collecting);
 
         let collector = SupportBundleCollector::new(
+            crate::app::background::TaskName::new("test_task"),
+            "test task",
             datastore.clone(),
             resolver.clone(),
             false,
@@ -1433,6 +1459,8 @@ mod test {
             .expect("Couldn't allocate a second support bundle");
 
         let collector = SupportBundleCollector::new(
+            crate::app::background::TaskName::new("test_task"),
+            "test task",
             datastore.clone(),
             resolver.clone(),
             false,
@@ -1548,6 +1576,8 @@ mod test {
             .unwrap();
 
         let collector = SupportBundleCollector::new(
+            crate::app::background::TaskName::new("test_task"),
+            "test task",
             datastore.clone(),
             resolver.clone(),
             false,
@@ -1605,6 +1635,8 @@ mod test {
         assert_eq!(bundle.state, SupportBundleState::Collecting);
 
         let collector = SupportBundleCollector::new(
+            crate::app::background::TaskName::new("test_task"),
+            "test task",
             datastore.clone(),
             resolver.clone(),
             false,
@@ -1705,6 +1737,8 @@ mod test {
             .unwrap();
 
         let collector = SupportBundleCollector::new(
+            crate::app::background::TaskName::new("test_task"),
+            "test task",
             datastore.clone(),
             resolver.clone(),
             false,
@@ -1765,6 +1799,8 @@ mod test {
         assert_eq!(bundle.state, SupportBundleState::Collecting);
 
         let collector = SupportBundleCollector::new(
+            crate::app::background::TaskName::new("test_task"),
+            "test task",
             datastore.clone(),
             resolver.clone(),
             false,
@@ -1852,6 +1888,8 @@ mod test {
         assert_eq!(bundle.state, SupportBundleState::Collecting);
 
         let collector = SupportBundleCollector::new(
+            crate::app::background::TaskName::new("test_task"),
+            "test task",
             datastore.clone(),
             resolver.clone(),
             false,
@@ -1938,6 +1976,8 @@ mod test {
         assert_eq!(bundle.state, SupportBundleState::Collecting);
 
         let collector = SupportBundleCollector::new(
+            crate::app::background::TaskName::new("test_task"),
+            "test task",
             datastore.clone(),
             resolver.clone(),
             false,
@@ -2041,6 +2081,8 @@ mod test {
         assert_eq!(bundle.state, SupportBundleState::Collecting);
 
         let collector = SupportBundleCollector::new(
+            crate::app::background::TaskName::new("test_task"),
+            "test task",
             datastore.clone(),
             resolver.clone(),
             false,

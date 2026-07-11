@@ -11,6 +11,7 @@
 //! that are no longer viable after the physical disk has been decommissioned.
 
 use crate::app::background::BackgroundTask;
+use crate::app::background::TaskName;
 use anyhow::Context;
 use futures::FutureExt;
 use futures::future::BoxFuture;
@@ -25,6 +26,8 @@ use std::sync::Arc;
 
 /// Background task that cleans decommissioned disk DB records.
 pub struct DecommissionedDiskCleaner {
+    name: TaskName,
+    description: String,
     datastore: Arc<DataStore>,
     disable: bool,
 }
@@ -40,8 +43,13 @@ struct ActivationResults {
 const MAX_BATCH: NonZeroU32 = NonZeroU32::new(100).unwrap();
 
 impl DecommissionedDiskCleaner {
-    pub fn new(datastore: Arc<DataStore>, disable: bool) -> Self {
-        Self { datastore, disable }
+    pub fn new(
+        name: TaskName,
+        description: impl ToString,
+        datastore: Arc<DataStore>,
+        disable: bool,
+    ) -> Self {
+        Self { name, description: description.to_string(), datastore, disable }
     }
 
     async fn clean_all(
@@ -124,6 +132,14 @@ impl DecommissionedDiskCleaner {
 }
 
 impl BackgroundTask for DecommissionedDiskCleaner {
+    fn name(&self) -> &TaskName {
+        &self.name
+    }
+
+    fn description(&self) -> &str {
+        &self.description
+    }
+
     fn activate<'a>(
         &'a mut self,
         opctx: &'a OpContext,
@@ -375,7 +391,12 @@ mod tests {
         );
         let fixture = TestFixture::setup(datastore, &opctx).await;
 
-        let mut task = DecommissionedDiskCleaner::new(datastore.clone(), false);
+        let mut task = DecommissionedDiskCleaner::new(
+            crate::app::background::TaskName::new("test_task"),
+            "test task",
+            datastore.clone(),
+            false,
+        );
 
         // Setup: Disk is expunged, not decommissioned.
         // Expectation: We ignore it.
@@ -404,7 +425,12 @@ mod tests {
         );
         let fixture = TestFixture::setup(datastore, &opctx).await;
 
-        let mut task = DecommissionedDiskCleaner::new(datastore.clone(), false);
+        let mut task = DecommissionedDiskCleaner::new(
+            crate::app::background::TaskName::new("test_task"),
+            "test task",
+            datastore.clone(),
+            false,
+        );
 
         datastore
             .physical_disk_decommission(&opctx, fixture.disk_id)
@@ -438,7 +464,12 @@ mod tests {
         );
         let fixture = TestFixture::setup(datastore, &opctx).await;
 
-        let mut task = DecommissionedDiskCleaner::new(datastore.clone(), false);
+        let mut task = DecommissionedDiskCleaner::new(
+            crate::app::background::TaskName::new("test_task"),
+            "test task",
+            datastore.clone(),
+            false,
+        );
 
         datastore
             .physical_disk_decommission(&opctx, fixture.disk_id)

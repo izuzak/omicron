@@ -152,6 +152,10 @@ use nexus_auth::context::OpContext;
 ///
 /// See module-level documentation for details.
 pub trait BackgroundTask: Send + Sync {
+    fn name(&self) -> &TaskName;
+
+    fn description(&self) -> &str;
+
     fn activate<'a>(
         &'a mut self,
         opctx: &'a OpContext,
@@ -167,6 +171,10 @@ pub trait BackgroundTask: Send + Sync {
 pub struct TaskName(String);
 
 impl TaskName {
+    pub(crate) fn new<N: ToString>(name: N) -> Self {
+        Self(name.to_string())
+    }
+
     pub fn as_str(&self) -> &str {
         &self.0
     }

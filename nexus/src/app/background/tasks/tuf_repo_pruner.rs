@@ -6,6 +6,7 @@
 
 use super::reconfigurator_config::ReconfiguratorConfigLoaderState;
 use crate::app::background::BackgroundTask;
+use crate::app::background::TaskName;
 use anyhow::Context;
 use futures::future::BoxFuture;
 use iddqd::IdOrdMap;
@@ -40,6 +41,8 @@ const NKEEP_RECENT_UPLOADS_ALWAYS: u8 = 1;
 
 /// Background task that marks TUF repos for pruning
 pub struct TufRepoPruner {
+    name: TaskName,
+    description: String,
     datastore: Arc<DataStore>,
     config: TufRepoPrunerConfig,
     rx_config: Receiver<ReconfiguratorConfigLoaderState>,
@@ -47,15 +50,32 @@ pub struct TufRepoPruner {
 
 impl TufRepoPruner {
     pub fn new(
+        name: TaskName,
+        description: impl ToString,
+
         datastore: Arc<DataStore>,
         config: TufRepoPrunerConfig,
         rx_config: Receiver<ReconfiguratorConfigLoaderState>,
     ) -> Self {
-        Self { datastore, config, rx_config }
+        Self {
+            name,
+            description: description.to_string(),
+            datastore,
+            config,
+            rx_config,
+        }
     }
 }
 
 impl BackgroundTask for TufRepoPruner {
+    fn name(&self) -> &TaskName {
+        &self.name
+    }
+
+    fn description(&self) -> &str {
+        &self.description
+    }
+
     fn activate<'a>(
         &'a mut self,
         opctx: &'a OpContext,

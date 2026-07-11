@@ -31,6 +31,7 @@
 //! [`app::webhook`]: crate::app::webhook
 
 use crate::app::background::BackgroundTask;
+use crate::app::background::TaskName;
 use crate::app::webhook::ReceiverClient;
 use futures::future::BoxFuture;
 use nexus_db_queries::context::OpContext;
@@ -100,6 +101,8 @@ use std::sync::Arc;
 // --- Neal Stephenson, _Snow Crash_
 #[derive(Clone)]
 pub struct WebhookDeliverator {
+    name: TaskName,
+    description: String,
     datastore: Arc<DataStore>,
     nexus_id: OmicronZoneUuid,
     client: reqwest::Client,
@@ -107,6 +110,14 @@ pub struct WebhookDeliverator {
 }
 
 impl BackgroundTask for WebhookDeliverator {
+    fn name(&self) -> &TaskName {
+        &self.name
+    }
+
+    fn description(&self) -> &str {
+        &self.description
+    }
+
     fn activate<'a>(
         &'a mut self,
         opctx: &'a OpContext,
@@ -132,12 +143,22 @@ impl BackgroundTask for WebhookDeliverator {
 
 impl WebhookDeliverator {
     pub fn new(
+        name: TaskName,
+        description: impl ToString,
+
         datastore: Arc<DataStore>,
         cfg: DeliveryConfig,
         nexus_id: OmicronZoneUuid,
         client: reqwest::Client,
     ) -> Self {
-        Self { datastore, nexus_id, cfg, client }
+        Self {
+            name,
+            description: description.to_string(),
+            datastore,
+            nexus_id,
+            cfg,
+            client,
+        }
     }
 
     const MAX_CONCURRENT_RXS: usize = 8;

@@ -11,6 +11,7 @@
 //! place to propagate changes in the IP allowlist for user-facing services.
 
 use crate::app::background::BackgroundTask;
+use crate::app::background::TaskName;
 use futures::FutureExt;
 use futures::future::BoxFuture;
 use nexus_db_queries::context::OpContext;
@@ -20,16 +21,30 @@ use slog_error_chain::InlineErrorChain;
 use std::sync::Arc;
 
 pub struct ServiceRulePropagator {
+    name: TaskName,
+    description: String,
     datastore: Arc<DataStore>,
 }
 
 impl ServiceRulePropagator {
-    pub fn new(datastore: Arc<DataStore>) -> Self {
-        Self { datastore }
+    pub fn new(
+        name: TaskName,
+        description: impl ToString,
+        datastore: Arc<DataStore>,
+    ) -> Self {
+        Self { name, description: description.to_string(), datastore }
     }
 }
 
 impl BackgroundTask for ServiceRulePropagator {
+    fn name(&self) -> &TaskName {
+        &self.name
+    }
+
+    fn description(&self) -> &str {
+        &self.description
+    }
+
     fn activate<'a>(
         &'a mut self,
         opctx: &'a OpContext,

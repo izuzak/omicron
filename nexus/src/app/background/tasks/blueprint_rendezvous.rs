@@ -5,6 +5,7 @@
 //! Background task for reconciling blueprints and inventory, updating
 //! Reconfigurator rendezvous tables
 
+use crate::app::background::TaskName;
 use crate::app::background::{
     BackgroundTask, tasks::blueprint_load::LoadedTargetBlueprint,
 };
@@ -24,6 +25,8 @@ use tokio::sync::watch;
 /// and updates any rendezvous tables to track resources under Reconfigurator's
 /// control for other parts of Nexus to consume.
 pub struct BlueprintRendezvous {
+    name: TaskName,
+    description: String,
     datastore: Arc<DataStore>,
     rx_blueprint: watch::Receiver<Option<LoadedTargetBlueprint>>,
     rx_inventory: watch::Receiver<Option<Arc<Collection>>>,
@@ -31,11 +34,20 @@ pub struct BlueprintRendezvous {
 
 impl BlueprintRendezvous {
     pub fn new(
+        name: TaskName,
+        description: impl ToString,
+
         datastore: Arc<DataStore>,
         rx_blueprint: watch::Receiver<Option<LoadedTargetBlueprint>>,
         rx_inventory: watch::Receiver<Option<Arc<Collection>>>,
     ) -> Self {
-        Self { datastore, rx_blueprint, rx_inventory }
+        Self {
+            name,
+            description: description.to_string(),
+            datastore,
+            rx_blueprint,
+            rx_inventory,
+        }
     }
 
     /// Implementation for `BackgroundTask::activate` for `BlueprintRendezvous`,
@@ -97,6 +109,14 @@ impl BlueprintRendezvous {
 }
 
 impl BackgroundTask for BlueprintRendezvous {
+    fn name(&self) -> &TaskName {
+        &self.name
+    }
+
+    fn description(&self) -> &str {
+        &self.description
+    }
+
     fn activate<'a>(
         &'a mut self,
         opctx: &'a OpContext,

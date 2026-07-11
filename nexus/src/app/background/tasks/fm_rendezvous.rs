@@ -6,6 +6,7 @@
 //! management blueprint.
 
 use crate::app::background::BackgroundTask;
+use crate::app::background::TaskName;
 use crate::app::background::tasks::fm_sitrep_load::CurrentSitrep;
 use futures::future::BoxFuture;
 use nexus_background_task_interface::Activator;
@@ -26,6 +27,8 @@ use tokio::sync::watch;
 
 #[derive(Clone)]
 pub struct FmRendezvous {
+    name: TaskName,
+    description: String,
     datastore: Arc<DataStore>,
     sitrep_watcher: watch::Receiver<Option<CurrentSitrep>>,
     alert_dispatcher: Activator,
@@ -35,6 +38,14 @@ pub struct FmRendezvous {
 }
 
 impl BackgroundTask for FmRendezvous {
+    fn name(&self) -> &TaskName {
+        &self.name
+    }
+
+    fn description(&self) -> &str {
+        &self.description
+    }
+
     fn activate<'a>(
         &'a mut self,
         opctx: &'a OpContext,
@@ -57,6 +68,9 @@ impl BackgroundTask for FmRendezvous {
 
 impl FmRendezvous {
     pub fn new(
+        name: TaskName,
+        description: impl ToString,
+
         datastore: Arc<DataStore>,
         rx: watch::Receiver<Option<CurrentSitrep>>,
         alert_dispatcher: Activator,
@@ -65,6 +79,8 @@ impl FmRendezvous {
         nexus_id: OmicronZoneUuid,
     ) -> Self {
         Self {
+            name,
+            description: description.to_string(),
             datastore,
             sitrep_watcher: rx,
             alert_dispatcher,
@@ -611,6 +627,8 @@ mod tests {
         } = make_activators();
 
         let mut task = FmRendezvous::new(
+            crate::app::background::TaskName::new("test_task"),
+            "test task",
             datastore.clone(),
             sitrep_rx,
             alert_dispatcher_activator.clone(),
@@ -869,6 +887,8 @@ mod tests {
         } = make_activators();
 
         let mut task = FmRendezvous::new(
+            crate::app::background::TaskName::new("test_task"),
+            "test task",
             datastore.clone(),
             sitrep_rx,
             alert_dispatcher_activator.clone(),
@@ -1040,6 +1060,8 @@ mod tests {
         } = make_activators();
 
         let mut task = FmRendezvous::new(
+            crate::app::background::TaskName::new("test_task"),
+            "test task",
             datastore.clone(),
             sitrep_rx,
             alert_dispatcher_activator.clone(),
@@ -1285,6 +1307,8 @@ mod tests {
         } = make_activators();
 
         let mut task = FmRendezvous::new(
+            crate::app::background::TaskName::new("test_task"),
+            "test task",
             datastore.clone(),
             sitrep_rx,
             alert_dispatcher_activator.clone(),
@@ -1523,6 +1547,8 @@ mod tests {
         } = make_activators();
 
         let mut task = FmRendezvous::new(
+            crate::app::background::TaskName::new("test_task"),
+            "test task",
             datastore.clone(),
             sitrep_rx,
             alert_dispatcher_activator.clone(),
@@ -1889,6 +1915,8 @@ mod tests {
 
         let nexus_id = OmicronZoneUuid::new_v4();
         let mut task = FmRendezvous::new(
+            crate::app::background::TaskName::new("test_task"),
+            "test task",
             datastore.clone(),
             sitrep_rx,
             alert_dispatcher_activator.clone(),
@@ -2095,6 +2123,8 @@ mod tests {
 
         let nexus_id = OmicronZoneUuid::new_v4();
         let mut task = FmRendezvous::new(
+            crate::app::background::TaskName::new("test_task"),
+            "test task",
             datastore.clone(),
             sitrep_rx,
             alert_dispatcher_activator.clone(),

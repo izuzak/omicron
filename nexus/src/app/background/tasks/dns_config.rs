@@ -5,6 +5,7 @@
 //! Background task for keeping track of DNS configuration
 
 use crate::app::background::BackgroundTask;
+use crate::app::background::TaskName;
 use futures::FutureExt;
 use futures::future::BoxFuture;
 use internal_dns_types::config::DnsConfigParams;
@@ -17,6 +18,8 @@ use tokio::sync::watch;
 
 /// Background task that keeps track of the latest configuration for a DNS group
 pub struct DnsConfigWatcher {
+    name: TaskName,
+    description: String,
     datastore: Arc<DataStore>,
     dns_group: DnsGroup,
     last: Option<DnsConfigParams>,
@@ -26,11 +29,21 @@ pub struct DnsConfigWatcher {
 
 impl DnsConfigWatcher {
     pub fn new(
+        name: TaskName,
+        description: impl ToString,
         datastore: Arc<DataStore>,
         dns_group: DnsGroup,
     ) -> DnsConfigWatcher {
         let (tx, rx) = watch::channel(None);
-        DnsConfigWatcher { datastore, dns_group, last: None, tx, rx }
+        DnsConfigWatcher {
+            name,
+            description: description.to_string(),
+            datastore,
+            dns_group,
+            last: None,
+            tx,
+            rx,
+        }
     }
 
     /// Exposes the latest DNS configuration for this DNS group
@@ -43,6 +56,14 @@ impl DnsConfigWatcher {
 }
 
 impl BackgroundTask for DnsConfigWatcher {
+    fn name(&self) -> &TaskName {
+        &self.name
+    }
+
+    fn description(&self) -> &str {
+        &self.description
+    }
+
     fn activate<'a>(
         &'a mut self,
         opctx: &'a OpContext,
@@ -159,6 +180,7 @@ impl BackgroundTask for DnsConfigWatcher {
 mod test {
     use super::DnsConfigWatcher;
     use crate::app::background::BackgroundTask;
+    use crate::app::background::TaskName;
     use crate::app::background::init::test::write_test_dns_generation;
     use assert_matches::assert_matches;
     use async_bb8_diesel::AsyncRunQueryDsl;
@@ -184,8 +206,12 @@ mod test {
         );
 
         // Verify the initial state.
-        let mut task =
-            DnsConfigWatcher::new(datastore.clone(), DnsGroup::Internal);
+        let mut task = DnsConfigWatcher::new(
+            TaskName::new("test_dns_config"),
+            "test DNS config task",
+            datastore.clone(),
+            DnsGroup::Internal,
+        );
         let watcher = task.watcher();
         assert_matches!(*watcher.borrow(), None);
 
@@ -286,8 +312,12 @@ mod test {
 
         // Verify that a new watcher also handles this okay. (i.e., that we can
         // come up with no state in the database).
-        let mut task =
-            DnsConfigWatcher::new(datastore.clone(), DnsGroup::Internal);
+        let mut task = DnsConfigWatcher::new(
+            TaskName::new("test_dns_config"),
+            "test DNS config task",
+            datastore.clone(),
+            DnsGroup::Internal,
+        );
         let watcher = task.watcher();
         assert_matches!(*watcher.borrow(), None);
         let _ = task.activate(&opctx).await;
