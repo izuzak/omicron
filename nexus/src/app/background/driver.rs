@@ -26,6 +26,7 @@ use nexus_types::internal_api::views::LastResult;
 use nexus_types::internal_api::views::LastResultCompleted;
 use nexus_types::internal_api::views::TaskStatus;
 use std::collections::BTreeMap;
+use std::sync::Arc;
 use std::time::Duration;
 use std::time::Instant;
 use tokio::sync::watch;
@@ -44,8 +45,8 @@ pub struct Driver {
 
 /// Driver-side state of a background task
 struct Task {
-    /// what this task does (for developers)
-    description: String,
+    /// task identity and summary
+    identity: TaskIdentity,
     /// configured period of the task
     period: Duration,
     /// channel used to receive updates from the background task's tokio task
@@ -96,15 +97,9 @@ impl Driver {
     ///
     /// This function panics if the `name` or `activator` has previously been
     /// passed to a call to this function.
-    pub fn register<N, D>(
-        &mut self,
-        taskdef: TaskDefinition<'_, N, D>,
-    ) -> TaskName
-    where
-        N: ToString,
-        D: ToString,
-    {
-        let name = taskdef.name.to_string();
+    pub fn register(&mut self, taskdef: TaskDefinition<'_>) -> TaskName {
+        let identity = taskdef.identity;
+        let name = identity.name().to_string();
 
         // Activation of the background task happens in a separate tokio task.
         // Set up a channel so that tokio task can report status back to us.
@@ -144,7 +139,7 @@ impl Driver {
         // This just provides the handles we need to read status and wake up the
         // tokio task.
         let task = Task {
-            description: taskdef.description.to_string(),
+            identity,
             period: taskdef.period,
             status: status_rx,
             tokio_task,
@@ -179,7 +174,7 @@ impl Driver {
 
     /// Returns a summary of what this task does (for developers)
     pub fn task_description(&self, task: &TaskName) -> &str {
-        &self.task_required(task).description
+        self.task_required(task).identity.description()
     }
 
     /// Returns the configured period of the task
@@ -217,11 +212,9 @@ impl Drop for Driver {
 /// Describes a background task to be registered with [`Driver::register()`]
 ///
 /// See [`Driver::register()`] for more on how these fields get used.
-pub struct TaskDefinition<'a, N: ToString, D: ToString> {
-    /// identifier for this task
-    pub name: N,
-    /// short human-readable summary of this task
-    pub description: D,
+pub struct TaskDefinition<'a> {
+    /// identifier and summary for this task
+    pub identity: TaskIdentity,
     /// driver should activate the task if it hasn't run in this long
     pub period: Duration,
     /// impl of [`BackgroundTask`] that represents the work of the task
@@ -232,6 +225,36 @@ pub struct TaskDefinition<'a, N: ToString, D: ToString> {
     pub watchers: Vec<Box<dyn GenericWatcher>>,
     /// an [`Activator]` that will be wired up to activate this task
     pub activator: &'a Activator,
+}
+
+/// Identifies a background task and describes what it does.
+#[derive(Clone)]
+pub struct TaskIdentity(Arc<TaskIdentityInner>);
+
+struct TaskIdentityInner {
+    name: String,
+    description: String,
+}
+
+impl TaskIdentity {
+    pub fn new<N, D>(name: N, description: D) -> Self
+    where
+        N: ToString,
+        D: ToString,
+    {
+        Self(Arc::new(TaskIdentityInner {
+            name: name.to_string(),
+            description: description.to_string(),
+        }))
+    }
+
+    pub fn name(&self) -> &str {
+        &self.0.name
+    }
+
+    pub fn description(&self) -> &str {
+        &self.0.description
+    }
 }
 
 /// Encapsulates state needed by the background tokio task to manage activation
@@ -397,7 +420,7 @@ mod test {
     use super::BackgroundTask;
     use super::Driver;
     use crate::app::background::Activator;
-    use crate::app::background::driver::TaskDefinition;
+    use crate::app::background::driver::{TaskDefinition, TaskIdentity};
     use assert_matches::assert_matches;
     use chrono::Utc;
     use futures::FutureExt;
@@ -487,8 +510,7 @@ mod test {
 
         assert_eq!(*rx1.borrow(), 0);
         let h1 = driver.register(TaskDefinition {
-            name: "t1",
-            description: "test task",
+            identity: TaskIdentity::new("t1", "test task"),
             period: Duration::from_millis(100),
             task_impl: Box::new(t1),
             opctx: opctx.child(std::collections::BTreeMap::new()),
@@ -500,8 +522,7 @@ mod test {
         });
 
         let h2 = driver.register(TaskDefinition {
-            name: "t2",
-            description: "test task",
+            identity: TaskIdentity::new("t2", "test task"),
             period: Duration::from_secs(300), // should never fire in this test
             task_impl: Box::new(t2),
             opctx: opctx.child(std::collections::BTreeMap::new()),
@@ -510,8 +531,7 @@ mod test {
         });
 
         let h3 = driver.register(TaskDefinition {
-            name: "t3",
-            description: "test task",
+            identity: TaskIdentity::new("t3", "test task"),
             period: Duration::from_secs(300), // should never fire in this test
             task_impl: Box::new(t3),
             opctx,
@@ -664,8 +684,7 @@ mod test {
         let before_instant = Instant::now();
         let act1 = Activator::new();
         let h1 = driver.register(TaskDefinition {
-            name: "t1",
-            description: "test task",
+            identity: TaskIdentity::new("t1", "test task"),
             period: Duration::from_secs(300), // should not elapse during test
             task_impl: Box::new(t1),
             opctx: opctx.child(std::collections::BTreeMap::new()),
