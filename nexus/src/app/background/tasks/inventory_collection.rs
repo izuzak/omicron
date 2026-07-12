@@ -6,6 +6,7 @@
 
 use crate::app::background::BackgroundTask;
 use crate::app::background::TaskName;
+use crate::app::background::TaskWatcher;
 use anyhow::Context;
 use anyhow::ensure;
 use futures::FutureExt;
@@ -71,8 +72,8 @@ impl InventoryCollector {
         }
     }
 
-    pub fn watcher(&self) -> watch::Receiver<Option<CollectionUuid>> {
-        self.tx.subscribe()
+    pub fn watcher(&self) -> TaskWatcher<Option<CollectionUuid>> {
+        TaskWatcher::new(self.name.clone(), self.tx.subscribe())
     }
 }
 

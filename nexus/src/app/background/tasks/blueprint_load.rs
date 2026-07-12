@@ -9,6 +9,7 @@
 
 use crate::app::background::BackgroundTask;
 use crate::app::background::TaskName;
+use crate::app::background::TaskWatcher;
 use futures::FutureExt;
 use futures::future::BoxFuture;
 use nexus_db_queries::context::OpContext;
@@ -47,8 +48,8 @@ impl TargetBlueprintLoader {
     }
 
     /// Expose the target blueprint
-    pub fn watcher(&self) -> watch::Receiver<Option<LoadedTargetBlueprint>> {
-        self.tx.subscribe()
+    pub fn watcher(&self) -> TaskWatcher<Option<LoadedTargetBlueprint>> {
+        TaskWatcher::new(self.name.clone(), self.tx.subscribe())
     }
 }
 
@@ -303,7 +304,7 @@ mod test {
             datastore.clone(),
             tx,
         );
-        let mut rx = task.watcher();
+        let mut rx = task.watcher().receiver();
 
         // We expect to see the initial blueprint set up by nexus-test-utils
         // (emulating RSS).

@@ -6,6 +6,7 @@
 
 use crate::app::background::BackgroundTask;
 use crate::app::background::TaskName;
+use crate::app::background::TaskWatcher;
 use chrono::Utc;
 use futures::future::BoxFuture;
 use nexus_auth::context::OpContext;
@@ -67,8 +68,8 @@ impl InventoryLoader {
         Self { name, description: description.to_string(), datastore, tx }
     }
 
-    pub fn watcher(&self) -> watch::Receiver<Option<Arc<Collection>>> {
-        self.tx.subscribe()
+    pub fn watcher(&self) -> TaskWatcher<Option<Arc<Collection>>> {
+        TaskWatcher::new(self.name.clone(), self.tx.subscribe())
     }
 
     async fn load_if_needed(&self, opctx: &OpContext) -> InventoryLoadStatus {

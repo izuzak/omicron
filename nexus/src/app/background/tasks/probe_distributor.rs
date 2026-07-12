@@ -6,6 +6,7 @@
 
 use crate::app::background::BackgroundTask;
 use crate::app::background::TaskName;
+use crate::app::background::TaskWatcher;
 use futures::FutureExt;
 use futures::future::BoxFuture;
 use nexus_db_queries::context::OpContext;
@@ -36,9 +37,13 @@ impl ProbeDistributor {
         name: TaskName,
         description: impl ToString,
         datastore: Arc<DataStore>,
-        tx: watch::Sender<()>,
     ) -> Self {
+        let (tx, _) = watch::channel(());
         Self { name, description: description.to_string(), datastore, tx }
+    }
+
+    pub fn watcher(&self) -> TaskWatcher<()> {
+        TaskWatcher::new(self.name.clone(), self.tx.subscribe())
     }
 }
 

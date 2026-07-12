@@ -6,6 +6,7 @@
 
 use crate::app::background::BackgroundTask;
 use crate::app::background::TaskName;
+use crate::app::background::TaskWatcher;
 use anyhow::Context;
 use futures::FutureExt;
 use futures::future::BoxFuture;
@@ -43,8 +44,8 @@ impl ReconfiguratorConfigLoader {
         Self { name, description: description.to_string(), datastore, tx }
     }
 
-    pub fn watcher(&self) -> watch::Receiver<ReconfiguratorConfigLoaderState> {
-        self.tx.subscribe()
+    pub fn watcher(&self) -> TaskWatcher<ReconfiguratorConfigLoaderState> {
+        TaskWatcher::new(self.name.clone(), self.tx.subscribe())
     }
 }
 
@@ -148,7 +149,7 @@ mod test {
         );
 
         // Initial state should be `NotYetLoaded`.
-        let mut rx = task.watcher();
+        let mut rx = task.watcher().receiver();
         assert_eq!(
             *rx.borrow_and_update(),
             ReconfiguratorConfigLoaderState::NotYetLoaded

@@ -6,6 +6,7 @@
 
 use crate::app::background::BackgroundTask;
 use crate::app::background::TaskName;
+use crate::app::background::TaskWatcher;
 use futures::FutureExt;
 use futures::future::BoxFuture;
 use internal_dns_types::config::DnsConfigParams;
@@ -48,10 +49,10 @@ impl DnsConfigWatcher {
 
     /// Exposes the latest DNS configuration for this DNS group
     ///
-    /// You can use the returned [`watch::Receiver`] to look at the latest
-    /// configuration or to be notified when it changes.
-    pub fn watcher(&self) -> watch::Receiver<Option<DnsConfigParams>> {
-        self.rx.clone()
+    /// Consumers can use the returned watcher to read the latest configuration,
+    /// while the background task driver can use it as a named dependency.
+    pub fn watcher(&self) -> TaskWatcher<Option<DnsConfigParams>> {
+        TaskWatcher::new(self.name.clone(), self.rx.clone())
     }
 }
 
@@ -213,6 +214,8 @@ mod test {
             DnsGroup::Internal,
         );
         let watcher = task.watcher();
+        assert_eq!(watcher.producer(), task.name());
+        let watcher = watcher.receiver();
         assert_matches!(*watcher.borrow(), None);
 
         // The datastore from the ControlPlaneTestContext is initialized with a
@@ -318,7 +321,7 @@ mod test {
             datastore.clone(),
             DnsGroup::Internal,
         );
-        let watcher = task.watcher();
+        let watcher = task.watcher().receiver();
         assert_matches!(*watcher.borrow(), None);
         let _ = task.activate(&opctx).await;
         assert_eq!(watcher.borrow().as_ref(), None);

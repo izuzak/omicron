@@ -147,6 +147,7 @@ pub use tasks::saga_recovery::SagaRecoveryHelpers;
 
 use futures::future::BoxFuture;
 use nexus_auth::context::OpContext;
+use tokio::sync::watch;
 
 /// An operation activated both periodically and by an explicit signal
 ///
@@ -177,6 +178,47 @@ impl TaskName {
 
     pub fn as_str(&self) -> &str {
         &self.0
+    }
+}
+
+/// A watch channel that retains the name of its producer background task.
+///
+/// Consumers can clone the underlying receiver to read its data.  The driver
+/// consumes this wrapper when registering a dependency so it can attribute
+/// dependency-triggered activations to the producer.
+pub struct TaskWatcher<T> {
+    producer: TaskName,
+    receiver: watch::Receiver<T>,
+}
+
+impl<T> Clone for TaskWatcher<T> {
+    fn clone(&self) -> Self {
+        Self {
+            producer: self.producer.clone(),
+            receiver: self.receiver.clone(),
+        }
+    }
+}
+
+impl<T> TaskWatcher<T> {
+    pub(crate) fn new(
+        producer: TaskName,
+        receiver: watch::Receiver<T>,
+    ) -> Self {
+        Self { producer, receiver }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn producer(&self) -> &TaskName {
+        &self.producer
+    }
+
+    pub fn receiver(&self) -> watch::Receiver<T> {
+        self.receiver.clone()
+    }
+
+    pub(crate) fn into_parts(self) -> (TaskName, watch::Receiver<T>) {
+        (self.producer, self.receiver)
     }
 }
 

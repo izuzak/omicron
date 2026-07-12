@@ -11,6 +11,7 @@ use crate::app::background::probes;
 
 use super::BackgroundTask;
 use super::TaskName;
+use super::TaskWatcher;
 use assert_matches::assert_matches;
 use chrono::Utc;
 use futures::FutureExt;
@@ -78,12 +79,10 @@ impl Driver {
     /// function panics if the name conflicts with that of a
     /// previously-registered task.
     ///
-    /// `watchers` is a (possibly-empty) list of
-    /// [`tokio::sync::watch::Receiver`] objects.  The Driver will automatically
-    /// activate the background task when any of these receivers' data has
-    /// changed.  This can be used to create dependencies between background
-    /// tasks, so that when one of them finishes doing something, it kicks off
-    /// another one.
+    /// `watchers` is a (possibly-empty) list of named task dependencies.  The
+    /// Driver will automatically activate the background task when any of these
+    /// dependencies' watch channels change, recording which producer task
+    /// triggered the activation.
     ///
     /// `activator` is an [`Activator`] that has not previously been used in a
     /// call to this function.  It will be wired up so that using it will
@@ -220,8 +219,8 @@ pub struct TaskDefinition<'a> {
     pub period: Duration,
     /// `OpContext` used for task activations
     pub opctx: OpContext,
-    /// list of watchers that will trigger activation of this task
-    pub watchers: Vec<Box<dyn GenericWatcher>>,
+    /// list of task dependencies that will trigger activation of this task
+    pub watchers: Vec<TaskDependency>,
     /// an [`Activator]` that will be wired up to activate this task
     pub activator: &'a Activator,
 }
@@ -268,7 +267,7 @@ impl TaskExec {
     }
 
     /// Body of the tokio task that manages activation of this background task
-    async fn run(mut self, mut deps: Vec<Box<dyn GenericWatcher>>) {
+    async fn run(mut self, mut deps: Vec<TaskDependency>) {
         let mut interval = tokio::time::interval(self.period);
         interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
 
@@ -288,8 +287,10 @@ impl TaskExec {
                     self.activate(ActivationReason::Signaled).await;
                 }
 
-                _ = dependencies.next(), if !dependencies.is_empty() => {
-                    self.activate(ActivationReason::Dependency).await;
+                Some(producer) = dependencies.next(), if !dependencies.is_empty() => {
+                    self.activate(ActivationReason::Dependency {
+                        producer: producer.as_str().to_string(),
+                    }).await;
                 }
             }
         }
@@ -319,7 +320,7 @@ impl TaskExec {
             status.current = CurrentStatus::Running(CurrentStatusRunning {
                 start_time,
                 start_instant,
-                reason,
+                reason: reason.clone(),
                 iteration,
             });
         });
@@ -370,7 +371,7 @@ impl TaskExec {
 /// This allows the `Driver` to treat these generically, activating a task when
 /// any of the watch channels changes, regardless of what data is stored in the
 /// channel.
-pub trait GenericWatcher: Send {
+trait GenericWatcher: Send {
     fn wait_for_change(
         &mut self,
     ) -> BoxFuture<'_, Result<(), watch::error::RecvError>>;
@@ -384,6 +385,42 @@ impl<T: Send + Sync> GenericWatcher for watch::Receiver<T> {
     }
 }
 
+/// A dependency on a watcher produced by another background task.
+pub struct TaskDependency {
+    producer: TaskName,
+    watcher: Box<dyn GenericWatcher>,
+}
+
+impl TaskDependency {
+    pub fn new<T>(watcher: TaskWatcher<T>) -> Self
+    where
+        T: Send + Sync + 'static,
+    {
+        let (producer, receiver) = watcher.into_parts();
+        Self { producer, watcher: Box::new(receiver) }
+    }
+
+    #[cfg(test)]
+    fn for_tests<T>(
+        producer: impl ToString,
+        receiver: watch::Receiver<T>,
+    ) -> Self
+    where
+        T: Send + Sync + 'static,
+    {
+        Self { producer: TaskName::new(producer), watcher: Box::new(receiver) }
+    }
+
+    fn wait_for_change(&mut self) -> BoxFuture<'_, TaskName> {
+        let producer = self.producer.clone();
+        async move {
+            let _ = self.watcher.wait_for_change().await;
+            producer
+        }
+        .boxed()
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::BackgroundTask;
@@ -391,6 +428,7 @@ mod test {
     use super::TaskName;
     use crate::app::background::Activator;
     use crate::app::background::driver::TaskDefinition;
+    use crate::app::background::driver::TaskDependency;
     use assert_matches::assert_matches;
     use chrono::Utc;
     use futures::FutureExt;
@@ -502,8 +540,8 @@ mod test {
             period: Duration::from_millis(100),
             opctx: opctx.child(std::collections::BTreeMap::new()),
             watchers: vec![
-                Box::new(dep_rx1.clone()),
-                Box::new(dep_rx2.clone()),
+                TaskDependency::for_tests("dep1", dep_rx1.clone()),
+                TaskDependency::for_tests("dep2", dep_rx2.clone()),
             ],
             activator: &act1,
         });
@@ -512,7 +550,7 @@ mod test {
             task: Box::new(t2),
             period: Duration::from_secs(300), // should never fire in this test
             opctx: opctx.child(std::collections::BTreeMap::new()),
-            watchers: vec![Box::new(dep_rx1.clone())],
+            watchers: vec![TaskDependency::for_tests("dep1", dep_rx1.clone())],
             activator: &act2,
         });
 
@@ -520,7 +558,10 @@ mod test {
             task: Box::new(t3),
             period: Duration::from_secs(300), // should never fire in this test
             opctx,
-            watchers: vec![Box::new(dep_rx1), Box::new(dep_rx2)],
+            watchers: vec![
+                TaskDependency::for_tests("dep1", dep_rx1),
+                TaskDependency::for_tests("dep2", dep_rx2),
+            ],
             activator: &act3,
         });
 
@@ -692,7 +733,7 @@ mod test {
             task: Box::new(t1),
             period: Duration::from_secs(300), // should not elapse during test
             opctx: opctx.child(std::collections::BTreeMap::new()),
-            watchers: vec![Box::new(dep_rx1.clone())],
+            watchers: vec![TaskDependency::for_tests("dep1", dep_rx1.clone())],
             activator: &act1,
         });
 
@@ -730,7 +771,10 @@ mod test {
         assert!(current.start_time >= after_wall);
         assert!(current.start_instant >= after_instant);
         assert_eq!(current.iteration, 2);
-        assert_eq!(current.reason, ActivationReason::Dependency);
+        assert_eq!(
+            current.reason,
+            ActivationReason::Dependency { producer: "dep1".to_string() },
+        );
         // Enqueue another activation by explicit signal while this one is still
         // running.
         driver.activate(&h1);
@@ -746,6 +790,10 @@ mod test {
         let last = status.last.unwrap_completion();
         assert_eq!(last.start_time, current.start_time);
         assert_eq!(last.iteration, current.iteration);
+        assert_eq!(
+            last.reason,
+            ActivationReason::Dependency { producer: "dep1".to_string() },
+        );
         let current = status.current.unwrap_running();
         assert_eq!(current.iteration, 3);
         assert_eq!(current.reason, ActivationReason::Signaled);
@@ -781,7 +829,12 @@ mod test {
         tokio::time::sleep(Duration::from_secs(1)).await;
         let status = driver.task_status(&h1);
         assert!(status.current.is_idle());
-        assert_eq!(status.last.unwrap_completion().iteration, 5);
+        let last = status.last.unwrap_completion();
+        assert_eq!(last.iteration, 5);
+        assert_eq!(
+            last.reason,
+            ActivationReason::Dependency { producer: "dep1".to_string() },
+        );
         assert_matches!(ready_rx1.try_recv(), Err(TryRecvError::Empty));
 
         // It would be nice to also verify that multiple time-based activations

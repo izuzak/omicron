@@ -235,12 +235,15 @@ impl BackgroundTask {
 /// This is only used for debugging.  This is deliberately not made available to
 /// the background task itself.  See "Design notes" in the module-level
 /// documentation for details.
-#[derive(Debug, Clone, Copy, Eq, PartialEq, JsonSchema, Serialize)]
-#[serde(rename_all = "snake_case")]
+#[derive(Debug, Clone, Eq, PartialEq, JsonSchema, Serialize)]
+#[serde(rename_all = "snake_case", tag = "type", content = "details")]
 pub enum ActivationReason {
     Signaled,
     Timeout,
-    Dependency,
+    Dependency {
+        /// Name of the background task whose watcher changed.
+        producer: String,
+    },
 }
 
 /// Describes the runtime status of the background task
@@ -1265,6 +1268,7 @@ pub struct SupportBundleInfo {
 
 #[cfg(test)]
 mod test {
+    use super::ActivationReason;
     use super::CompletedAttempt;
     use super::InProgressUpdateStatus;
     use super::MgsUpdateDriverStatus;
@@ -1282,6 +1286,21 @@ mod test {
     use std::sync::Arc;
     use std::time::Instant;
     use tufaceous_artifact::ArtifactHash;
+
+    #[test]
+    fn test_activation_reason_dependency_serialization() {
+        let reason =
+            ActivationReason::Dependency { producer: "producer-task".into() };
+        assert_eq!(
+            serde_json::to_value(reason).unwrap(),
+            serde_json::json!({
+                "type": "dependency",
+                "details": {
+                    "producer": "producer-task",
+                },
+            }),
+        );
+    }
 
     #[test]
     fn test_can_serialize_mgs_updates() {

@@ -1526,11 +1526,62 @@
     "schemas": {
       "ActivationReason": {
         "description": "Describes why a background task was activated\n\nThis is only used for debugging.  This is deliberately not made available to the background task itself.  See \"Design notes\" in the module-level documentation for details.",
-        "type": "string",
-        "enum": [
-          "signaled",
-          "timeout",
-          "dependency"
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "signaled"
+                ]
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "timeout"
+                ]
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "details": {
+                "type": "object",
+                "properties": {
+                  "producer": {
+                    "description": "Name of the background task whose watcher changed.",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "producer"
+                ]
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "dependency"
+                ]
+              }
+            },
+            "required": [
+              "details",
+              "type"
+            ]
+          }
         ]
       },
       "AllowedSourceIps": {

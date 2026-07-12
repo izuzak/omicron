@@ -6,6 +6,7 @@
 
 use crate::app::{
     background::TaskName,
+    background::TaskWatcher,
     background::{Activator, BackgroundTask, LoadedTargetBlueprint},
     quiesce::NexusQuiesceHandle,
 };
@@ -67,8 +68,8 @@ impl BlueprintExecutor {
         }
     }
 
-    pub fn watcher(&self) -> watch::Receiver<usize> {
-        self.tx.subscribe()
+    pub fn watcher(&self) -> TaskWatcher<usize> {
+        TaskWatcher::new(self.name.clone(), self.tx.subscribe())
     }
 
     /// Implementation for `BackgroundTask::activate` for `BlueprintExecutor`,

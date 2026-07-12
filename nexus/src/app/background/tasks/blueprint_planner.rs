@@ -7,6 +7,7 @@
 use super::reconfigurator_config::ReconfiguratorConfigLoaderState;
 use crate::app::background::BackgroundTask;
 use crate::app::background::TaskName;
+use crate::app::background::TaskWatcher;
 use crate::app::background::tasks::blueprint_load::LoadedTargetBlueprint;
 use chrono::Utc;
 use futures::future::BoxFuture;
@@ -125,8 +126,8 @@ impl BlueprintPlanner {
     /// The primary use of this channel is to be notified when the planner has
     /// created a new target blueprint, at which point a concerned party should
     /// load the current target.
-    pub fn watcher(&self) -> watch::Receiver<Option<BlueprintUuid>> {
-        self.tx_planned.subscribe()
+    pub fn watcher(&self) -> TaskWatcher<Option<BlueprintUuid>> {
+        TaskWatcher::new(self.name.clone(), self.tx_planned.subscribe())
     }
 
     /// Run a planning iteration to generate a new blueprint.
@@ -492,7 +493,7 @@ mod test {
             datastore.clone(),
             tx_loader,
         );
-        let mut rx_loader = bp_loader.watcher();
+        let mut rx_loader = bp_loader.watcher().receiver();
         bp_loader.activate(&opctx).await;
         let initial_blueprint = rx_loader
             .borrow_and_update()
@@ -525,7 +526,7 @@ mod test {
             datastore.clone(),
             watch::Sender::new(None),
         );
-        let rx_inventory = inv_loader.watcher();
+        let rx_inventory = inv_loader.watcher().receiver();
         inv_loader.activate(&opctx).await;
 
         // Enable the planner

@@ -4076,11 +4076,13 @@ fn warn_if_nonzero(n: usize) -> &'static str {
 }
 
 /// Summarizes an `ActivationReason`
-fn reason_str(reason: &ActivationReason) -> &'static str {
+fn reason_str(reason: &ActivationReason) -> std::borrow::Cow<'_, str> {
     match reason {
-        ActivationReason::Signaled => "an explicit signal",
-        ActivationReason::Dependency => "a dependent task completing",
-        ActivationReason::Timeout => "a periodic timer firing",
+        ActivationReason::Signaled => "an explicit signal".into(),
+        ActivationReason::Dependency { producer } => {
+            format!("a change from dependency task {producer}").into()
+        }
+        ActivationReason::Timeout => "a periodic timer firing".into(),
     }
 }
 
@@ -4296,7 +4298,7 @@ impl<'a> From<&'a BackgroundTask> for BackgroundTaskStatusRow {
                     std::time::Duration::from(last.elapsed.clone())
                         .as_secs_f64()
                 ),
-                reason_code(last.reason),
+                reason_code(&last.reason),
             ),
         };
 
@@ -4304,7 +4306,7 @@ impl<'a> From<&'a BackgroundTask> for BackgroundTaskStatusRow {
             CurrentStatus::Idle => (String::from("-"), '-'),
             CurrentStatus::Running(current) => (
                 current.start_time.to_rfc3339_opts(SecondsFormat::Secs, true),
-                reason_code(current.reason),
+                reason_code(&current.reason),
             ),
         };
 
@@ -4320,10 +4322,10 @@ impl<'a> From<&'a BackgroundTask> for BackgroundTaskStatusRow {
     }
 }
 
-fn reason_code(reason: ActivationReason) -> char {
+fn reason_code(reason: &ActivationReason) -> char {
     match reason {
         ActivationReason::Signaled => 'S',
-        ActivationReason::Dependency => 'D',
+        ActivationReason::Dependency { .. } => 'D',
         ActivationReason::Timeout => 'T',
     }
 }

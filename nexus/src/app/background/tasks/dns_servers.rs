@@ -6,6 +6,7 @@
 
 use crate::app::background::BackgroundTask;
 use crate::app::background::TaskName;
+use crate::app::background::TaskWatcher;
 use futures::FutureExt;
 use futures::future::BoxFuture;
 use internal_dns_resolver::Resolver;
@@ -55,10 +56,10 @@ impl DnsServersWatcher {
 
     /// Exposes the latest list of DNS servers for this DNS group
     ///
-    /// You can use the returned [`watch::Receiver`] to look at the latest
-    /// list of servers or to be notified when it changes.
-    pub fn watcher(&self) -> watch::Receiver<Option<DnsServersList>> {
-        self.rx.clone()
+    /// Consumers can use the returned watcher to read the latest list, while
+    /// the background task driver can use it as a named dependency.
+    pub fn watcher(&self) -> TaskWatcher<Option<DnsServersList>> {
+        TaskWatcher::new(self.name.clone(), self.rx.clone())
     }
 }
 

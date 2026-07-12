@@ -7,6 +7,7 @@
 
 use crate::app::background::BackgroundTask;
 use crate::app::background::TaskName;
+use crate::app::background::TaskWatcher;
 use chrono::Utc;
 use futures::future::BoxFuture;
 use nexus_db_queries::context::OpContext;
@@ -68,8 +69,8 @@ impl SitrepLoader {
     }
 
     #[allow(dead_code)] // subsequent PRs will consume this
-    pub fn watcher(&self) -> watch::Receiver<Option<CurrentSitrep>> {
-        self.tx.subscribe()
+    pub fn watcher(&self) -> TaskWatcher<Option<CurrentSitrep>> {
+        TaskWatcher::new(self.name.clone(), self.tx.subscribe())
     }
 
     async fn load_if_needed(&self, opctx: &OpContext) -> Status {
