@@ -3930,13 +3930,12 @@
             "format": "uint64",
             "minimum": 0
           },
-          "reason": {
-            "description": "what kind of event triggered this activation",
-            "allOf": [
-              {
-                "$ref": "#/components/schemas/ActivationReason"
-              }
-            ]
+          "reasons": {
+            "description": "activation triggers collapsed into this activation. This may contain duplicate reasons, and their order is not meaningful.",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ActivationReason"
+            }
           },
           "start_time": {
             "description": "wall-clock time when the current activation started",
@@ -3946,7 +3945,7 @@
         },
         "required": [
           "iteration",
-          "reason",
+          "reasons",
           "start_time"
         ]
       },
@@ -5667,13 +5666,12 @@
             "format": "uint64",
             "minimum": 0
           },
-          "reason": {
-            "description": "what kind of event triggered this activation",
-            "allOf": [
-              {
-                "$ref": "#/components/schemas/ActivationReason"
-              }
-            ]
+          "reasons": {
+            "description": "activation triggers collapsed into this activation. This may contain duplicate reasons, and their order is not meaningful.",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ActivationReason"
+            }
           },
           "start_time": {
             "description": "wall-clock time when the activation started",
@@ -5685,7 +5683,7 @@
           "details",
           "elapsed",
           "iteration",
-          "reason",
+          "reasons",
           "start_time"
         ]
       },

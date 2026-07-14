@@ -295,8 +295,9 @@ pub struct CurrentStatusRunning {
     #[allow(dead_code)]
     #[serde(skip)]
     pub start_instant: Instant,
-    /// what kind of event triggered this activation
-    pub reason: ActivationReason,
+    /// activation triggers collapsed into this activation. This may contain
+    /// duplicate reasons, and their order is not meaningful.
+    pub reasons: Vec<ActivationReason>,
     /// which iteration this was (counter)
     pub iteration: u64,
 }
@@ -334,8 +335,9 @@ pub struct LastResultCompleted {
     pub iteration: u64,
     /// wall-clock time when the activation started
     pub start_time: DateTime<Utc>,
-    /// what kind of event triggered this activation
-    pub reason: ActivationReason,
+    /// activation triggers collapsed into this activation. This may contain
+    /// duplicate reasons, and their order is not meaningful.
+    pub reasons: Vec<ActivationReason>,
     /// total time elapsed during the activation
     pub elapsed: Duration,
     /// arbitrary datum emitted by the background task

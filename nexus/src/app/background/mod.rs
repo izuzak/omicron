@@ -178,7 +178,7 @@ mod probes {
     fn background__task__activate__start(
         task_name: &str,
         iteration: u64,
-        reason: &str,
+        reasons: &str,
     ) {
     }
 

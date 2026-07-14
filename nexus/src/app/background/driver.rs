@@ -320,8 +320,7 @@ impl TaskExec {
                     .expect("activation trigger set is not empty")
             };
 
-            // For now, report the first trigger as the activation reason.
-            self.activate(reasons[0]).await;
+            self.activate(reasons).await;
         }
     }
 
@@ -330,7 +329,8 @@ impl TaskExec {
     /// This basically just invokes `activate()` on the underlying
     /// `BackgroundTask` impl, but provides a bunch of runtime observability
     /// around doing so.
-    async fn activate(&mut self, reason: ActivationReason) {
+    async fn activate(&mut self, reasons: Vec<ActivationReason>) {
+        assert!(!reasons.is_empty(), "activation reasons must not be empty");
         self.iteration += 1;
         let iteration = self.iteration;
         let start_time = Utc::now();
@@ -339,7 +339,7 @@ impl TaskExec {
         debug!(
             &self.opctx.log,
             "activating";
-            "reason" => ?reason,
+            "reasons" => ?reasons,
             "iteration" => iteration
         );
 
@@ -349,14 +349,14 @@ impl TaskExec {
             status.current = CurrentStatus::Running(CurrentStatusRunning {
                 start_time,
                 start_instant,
-                reason,
+                reasons: reasons.clone(),
                 iteration,
             });
         });
 
         // Do it!
         probes::background__task__activate__start!(|| {
-            (&self.name, self.iteration, format!("{reason:?}"))
+            (&self.name, self.iteration, format!("{reasons:?}"))
         });
         let details = self.imp.activate(&self.opctx).await;
         let details_str = serde_json::to_string(&details).unwrap_or_else(|e| {
@@ -378,7 +378,7 @@ impl TaskExec {
                 last: LastResult::Completed(LastResultCompleted {
                     iteration,
                     start_time,
-                    reason,
+                    reasons,
                     elapsed,
                     details,
                 }),
@@ -709,7 +709,7 @@ mod test {
         assert!(current.start_instant >= before_instant);
         assert!(current.start_instant <= after_instant);
         assert_eq!(current.iteration, 1);
-        assert_eq!(current.reason, ActivationReason::Timeout);
+        assert_eq!(current.reasons, [ActivationReason::Timeout]);
         // Enqueue another activation by dependency while this one is still
         // running.
         dep_tx1.send_replace(1);
@@ -729,7 +729,7 @@ mod test {
         assert!(current.start_time >= after_wall);
         assert!(current.start_instant >= after_instant);
         assert_eq!(current.iteration, 2);
-        assert_eq!(current.reason, ActivationReason::Dependency);
+        assert_eq!(current.reasons, [ActivationReason::Dependency]);
         // Enqueue another activation by explicit signal while this one is still
         // running.
         driver.activate(&h1);
@@ -747,7 +747,7 @@ mod test {
         assert_eq!(last.iteration, current.iteration);
         let current = status.current.unwrap_running();
         assert_eq!(current.iteration, 3);
-        assert_eq!(current.reason, ActivationReason::Signaled);
+        assert_eq!(current.reasons, [ActivationReason::Signaled]);
         // This time, queue up several explicit activations.
         driver.activate(&h1);
         driver.activate(&h1);
@@ -839,26 +839,29 @@ mod test {
         assert!(!status.last.has_completed());
         let current = status.current.unwrap_running();
         assert_eq!(current.iteration, 1);
-        assert_eq!(current.reason, ActivationReason::Timeout);
+        assert_eq!(current.reasons, [ActivationReason::Timeout]);
 
         // While that activation is paused, make both dependencies ready.
         dep_tx1.send_replace(1);
         dep_tx2.send_replace(1);
 
-        // Unpause the task so that it completes and the select loop runs
+        // Unpause the task so that it completes and the driver loop runs
         // again.
         wait_tx.send(()).await.unwrap();
 
         // The two ready dependencies should be collapsed into one activation.
-        // First, verify that the next activation starts and was caused by a
-        // dependency.
+        // First, verify that the next activation starts and was caused by two
+        // dependencies.
         assert_eq!(ready_rx.recv().await.unwrap(), 2);
         let status = driver.task_status(&task_handle);
         let current = status.current.unwrap_running();
         assert_eq!(current.iteration, 2);
-        assert_eq!(current.reason, ActivationReason::Dependency);
+        assert_eq!(
+            current.reasons,
+            [ActivationReason::Dependency, ActivationReason::Dependency]
+        );
 
-        // Next, unpause the task so that it completes and the select loop runs
+        // Next, unpause the task so that it completes and the driver loop runs
         // again.
         wait_tx.send(()).await.unwrap();
 
@@ -918,7 +921,7 @@ mod test {
         let status = driver.task_status(&task_handle);
         let current = status.current.unwrap_running();
         assert_eq!(current.iteration, 1);
-        assert_eq!(current.reason, ActivationReason::Timeout);
+        assert_eq!(current.reasons, [ActivationReason::Timeout]);
 
         // Make both the dependency and explicit-signal activation triggers
         // ready when the driver loop resumes.
@@ -930,16 +933,14 @@ mod test {
         wait_tx.send(()).await.unwrap();
 
         // Both triggers should be collapsed into one activation. First, verify
-        // that the next activation starts and reports either trigger as its
-        // reason.
+        // that the next activation starts and reports both triggers as reasons.
         assert_eq!(ready_rx.recv().await.unwrap(), 2);
         let status = driver.task_status(&task_handle);
         let current = status.current.unwrap_running();
         assert_eq!(current.iteration, 2);
-        assert_matches!(
-            current.reason,
-            ActivationReason::Dependency | ActivationReason::Signaled
-        );
+        assert_eq!(current.reasons.len(), 2);
+        assert!(current.reasons.contains(&ActivationReason::Dependency));
+        assert!(current.reasons.contains(&ActivationReason::Signaled));
 
         // Unpause the task so that it completes and the driver loop runs
         // again.

@@ -1157,7 +1157,7 @@ fn print_task(bgtask: &BackgroundTask, opts: &BackgroundTasksPrintOpts) {
                 print!(
                     "iter {}, triggered by {}\n",
                     current.iteration,
-                    reason_str(&current.reason)
+                    reasons_str(&current.reasons)
                 );
                 print!(
                     "    started at {}, running for {}\n",
@@ -1175,7 +1175,7 @@ fn print_task(bgtask: &BackgroundTask, opts: &BackgroundTasksPrintOpts) {
             print!(
                 "iter {}, triggered by {}\n",
                 last.iteration,
-                reason_str(&last.reason)
+                reasons_str(&last.reasons)
             );
             print_run_time(last.start_time, last.elapsed.clone().into(), 4)
         }
@@ -4116,6 +4116,10 @@ fn reason_str(reason: &ActivationReason) -> &'static str {
     }
 }
 
+fn reasons_str(reasons: &[ActivationReason]) -> String {
+    reasons.iter().map(reason_str).join(", ")
+}
+
 fn bgtask_apply_kv_style(table: &mut tabled::Table) {
     let style = tabled::settings::Style::empty();
     table.with(style).with(
@@ -4302,11 +4306,11 @@ struct BackgroundTaskStatusRow {
     #[tabled(rename = "Psecs")]
     completed_elapsed: String,
     #[tabled(rename = "P")]
-    completed_reason: char,
+    completed_reasons: String,
     #[tabled(rename = "CSTART")]
     running_since: String,
     #[tabled(rename = "C")]
-    running_reason: char,
+    running_reasons: String,
 }
 
 impl<'a> From<&'a BackgroundTask> for BackgroundTaskStatusRow {
@@ -4315,11 +4319,14 @@ impl<'a> From<&'a BackgroundTask> for BackgroundTaskStatusRow {
             completed_generation,
             completed_start_time,
             completed_elapsed,
-            completed_reason,
+            completed_reasons,
         ) = match &t.last {
-            LastResult::NeverCompleted => {
-                (String::from("-"), String::from("-"), String::from("-"), '-')
-            }
+            LastResult::NeverCompleted => (
+                String::from("-"),
+                String::from("-"),
+                String::from("-"),
+                String::from("-"),
+            ),
             LastResult::Completed(last) => (
                 last.iteration.to_string(),
                 last.start_time.to_rfc3339_opts(SecondsFormat::Secs, true),
@@ -4328,15 +4335,15 @@ impl<'a> From<&'a BackgroundTask> for BackgroundTaskStatusRow {
                     std::time::Duration::from(last.elapsed.clone())
                         .as_secs_f64()
                 ),
-                reason_code(last.reason),
+                reason_codes(&last.reasons),
             ),
         };
 
-        let (running_since, running_reason) = match &t.current {
-            CurrentStatus::Idle => (String::from("-"), '-'),
+        let (running_since, running_reasons) = match &t.current {
+            CurrentStatus::Idle => (String::from("-"), String::from("-")),
             CurrentStatus::Running(current) => (
                 current.start_time.to_rfc3339_opts(SecondsFormat::Secs, true),
-                reason_code(current.reason),
+                reason_codes(&current.reasons),
             ),
         };
 
@@ -4345,19 +4352,23 @@ impl<'a> From<&'a BackgroundTask> for BackgroundTaskStatusRow {
             completed_generation,
             completed_start_time,
             completed_elapsed,
-            completed_reason,
+            completed_reasons,
             running_since,
-            running_reason,
+            running_reasons,
         }
     }
 }
 
-fn reason_code(reason: ActivationReason) -> char {
+fn reason_code(reason: &ActivationReason) -> char {
     match reason {
         ActivationReason::Signaled => 'S',
         ActivationReason::Dependency => 'D',
         ActivationReason::Timeout => 'T',
     }
+}
+
+fn reason_codes(reasons: &[ActivationReason]) -> String {
+    reasons.iter().map(reason_code).collect()
 }
 
 async fn cmd_nexus_blueprints_list(
