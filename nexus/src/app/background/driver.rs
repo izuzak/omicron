@@ -282,30 +282,46 @@ impl TaskExec {
 
         // Wait for either the timeout to elapse, or an explicit activation
         // signal from the Driver, or for one of our dependencies ("watch"
-        // channels) to trigger an activation.
+        // channels) to trigger an activation. We use one FuturesUnordered set
+        // instead of a tokio::select! so that after any trigger becomes ready,
+        // other triggers that are also ready can be collapsed into the same
+        // activation.
         loop {
-            let deps_len = deps.len();
-            let mut dependencies = deps
-                .iter_mut()
-                .map(|w| w.wait_for_change())
-                .collect::<FuturesUnordered<_>>()
-                // Wait for one changed dependency, then collapse any others
-                // that are also ready into the same activation.
-                .ready_chunks(deps_len.max(1));
+            let reasons = {
+                let triggers: FuturesUnordered<
+                    BoxFuture<'_, ActivationReason>,
+                > = FuturesUnordered::new();
 
-            tokio::select! {
-                _ = interval.tick() => {
-                    self.activate(ActivationReason::Timeout).await;
-                },
-
-                _ = self.activation.activated() => {
-                    self.activate(ActivationReason::Signaled).await;
+                triggers.push(
+                    interval.tick().map(|_| ActivationReason::Timeout).boxed(),
+                );
+                triggers.push(
+                    self.activation
+                        .activated()
+                        .map(|_| ActivationReason::Signaled)
+                        .boxed(),
+                );
+                for dependency in &mut deps {
+                    triggers.push(
+                        dependency
+                            .wait_for_change()
+                            .map(|_| ActivationReason::Dependency)
+                            .boxed(),
+                    );
                 }
 
-                _ = dependencies.next(), if deps_len > 0 => {
-                    self.activate(ActivationReason::Dependency).await;
-                }
-            }
+                let n_triggers = triggers.len();
+                triggers
+                    // Wait for one trigger, then collapse any others that are
+                    // also ready into the same activation.
+                    .ready_chunks(n_triggers)
+                    .next()
+                    .await
+                    .expect("activation trigger set is not empty")
+            };
+
+            // For now, report the first trigger as the activation reason.
+            self.activate(reasons[0]).await;
         }
     }
 
