@@ -857,4 +857,84 @@ mod test {
         assert_eq!(status.last.unwrap_completion().iteration, 2);
         assert_matches!(ready_rx.try_recv(), Err(TryRecvError::Empty));
     }
+
+    // Verifies that distinct kinds of activation triggers that become ready
+    // while a task is already running are collapsed into one activation.
+    //
+    // The general idea/flow for the test is:
+    //
+    //   1. timeout-based activation (1) starts and pauses
+    //      1.1. a dependency becomes ready
+    //      1.2. an explicit activation signal becomes ready
+    //   2. activation (1) finishes
+    //   3. one activation (2) starts for the two ready triggers
+    //   4. activation (2) finishes
+    //   5. no activation (3) should start
+    #[nexus_test(server = crate::Server)]
+    async fn test_distinct_ready_activation_triggers_are_collapsed(
+        cptestctx: &ControlPlaneTestContext,
+    ) {
+        let nexus = &cptestctx.server.server_context().nexus;
+        let datastore = nexus.datastore();
+        let opctx = OpContext::for_tests(
+            cptestctx.logctx.log.clone(),
+            datastore.clone(),
+        );
+
+        let mut driver = Driver::new();
+        let (wait_tx, wait_rx) = mpsc::channel(10);
+        let (task, mut ready_rx) = PausingTask::new(wait_rx);
+        let (dep_tx, dep_rx) = watch::channel(0);
+        let activator = Activator::new();
+        let task_handle = driver.register(TaskDefinition {
+            name: "t1",
+            description: "test task",
+            period: Duration::from_secs(300),
+            task_impl: Box::new(task),
+            opctx: opctx.child(std::collections::BTreeMap::new()),
+            watchers: vec![Box::new(dep_rx)],
+            activator: &activator,
+        });
+
+        // Verify that the task started with the initial timeout-based
+        // activation.
+        assert_eq!(ready_rx.recv().await.unwrap(), 1);
+        let status = driver.task_status(&task_handle);
+        let current = status.current.unwrap_running();
+        assert_eq!(current.iteration, 1);
+        assert_eq!(current.reason, ActivationReason::Timeout);
+
+        // Make both the dependency and explicit-signal activation triggers
+        // ready when the driver loop resumes.
+        dep_tx.send_replace(1);
+        driver.activate(&task_handle);
+
+        // Unpause the task so that it completes and the driver loop runs
+        // again.
+        wait_tx.send(()).await.unwrap();
+
+        // Both triggers should be collapsed into one activation. First, verify
+        // that the next activation starts and reports either trigger as its
+        // reason.
+        assert_eq!(ready_rx.recv().await.unwrap(), 2);
+        let status = driver.task_status(&task_handle);
+        let current = status.current.unwrap_running();
+        assert_eq!(current.iteration, 2);
+        assert_matches!(
+            current.reason,
+            ActivationReason::Dependency | ActivationReason::Signaled
+        );
+
+        // Unpause the task so that it completes and the driver loop runs
+        // again.
+        wait_tx.send(()).await.unwrap();
+
+        // Finally, verify that no additional activation starts after the
+        // collapsed activation.
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        let status = driver.task_status(&task_handle);
+        assert!(status.current.is_idle());
+        assert_eq!(status.last.unwrap_completion().iteration, 2);
+        assert_matches!(ready_rx.try_recv(), Err(TryRecvError::Empty));
+    }
 }
