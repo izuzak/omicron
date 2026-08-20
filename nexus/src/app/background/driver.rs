@@ -402,6 +402,7 @@ impl<T: Send + Sync> GenericWatcher for watch::Receiver<T> {
 mod test {
     use super::BackgroundTask;
     use super::Driver;
+    use super::GenericWatcher;
     use crate::app::background::Activator;
     use crate::app::background::driver::TaskDefinition;
     use assert_matches::assert_matches;
@@ -411,6 +412,9 @@ mod test {
     use nexus_db_queries::context::OpContext;
     use nexus_test_utils_macros::nexus_test;
     use nexus_types::internal_api::views::ActivationReason;
+    use std::sync::Arc;
+    use std::sync::atomic::AtomicUsize;
+    use std::sync::atomic::Ordering;
     use std::time::Duration;
     use std::time::Instant;
     use tokio::sync::mpsc;
@@ -651,6 +655,41 @@ mod test {
         }
     }
 
+    /// A test watcher that counts successfully consumed change notifications.
+    struct ObservedWatcher<T> {
+        receiver: watch::Receiver<T>,
+        changes_seen: Arc<AtomicUsize>,
+    }
+
+    impl<T> ObservedWatcher<T> {
+        fn new(
+            receiver: watch::Receiver<T>,
+        ) -> (ObservedWatcher<T>, Arc<AtomicUsize>) {
+            let changes_seen = Arc::new(AtomicUsize::new(0));
+            (
+                ObservedWatcher {
+                    receiver,
+                    changes_seen: Arc::clone(&changes_seen),
+                },
+                changes_seen,
+            )
+        }
+    }
+
+    impl<T: Send + Sync> GenericWatcher for ObservedWatcher<T> {
+        fn wait_for_change(
+            &mut self,
+        ) -> BoxFuture<'_, Result<(), watch::error::RecvError>> {
+            let changes_seen = Arc::clone(&self.changes_seen);
+            async move {
+                self.receiver.changed().await?;
+                changes_seen.fetch_add(1, Ordering::SeqCst);
+                Ok(())
+            }
+            .boxed()
+        }
+    }
+
     // Exercises various case of activation while a background task is currently
     // activated.
     #[nexus_test(server = crate::Server)]
@@ -777,18 +816,19 @@ mod test {
     }
 
     // Verifies that when multiple distinct dependencies become ready while an
-    // activation is already running, the task is activated only once afterward
-    // instead of once per ready dependency.
+    // activation is already running, the following dependency-triggered task
+    // activation consumes all ready dependencies instead of only one. As a
+    // result, the task is activated only once instead of once per ready
+    // dependency.
     //
-    // The general idea/flow for the test is:
+    // The general flow of the test is:
     //
     //   1. timeout-based activation (1) starts and pauses
     //      1.1. dependency 1 becomes ready
     //      1.2. dependency 2 becomes ready
     //   2. activation (1) finishes
     //   3. one dependency-triggered activation (2) starts
-    //   4. activation (2) finishes
-    //   5. no activation (3) should start
+    //   4. both dependency notifications have been consumed
     #[nexus_test(server = crate::Server)]
     async fn test_distinct_ready_dependencies_are_collapsed(
         cptestctx: &ControlPlaneTestContext,
@@ -805,14 +845,18 @@ mod test {
         let (task, mut ready_rx) = PausingTask::new(wait_rx);
         let (dep_tx1, dep_rx1) = watch::channel(0);
         let (dep_tx2, dep_rx2) = watch::channel(0);
+        let (dep1_watcher, dep1_changes_seen) = ObservedWatcher::new(dep_rx1);
+        let (dep2_watcher, dep2_changes_seen) = ObservedWatcher::new(dep_rx2);
         let activator = Activator::new();
         let task_handle = driver.register(TaskDefinition {
             name: "t1",
             description: "test task",
-            period: Duration::from_secs(300),
+            // Tokio intervals tick immediately when created. Make the next
+            // tick occur long after this test should have finished (one day)
+            period: Duration::from_secs(24 * 60 * 60),
             task_impl: Box::new(task),
             opctx: opctx.child(std::collections::BTreeMap::new()),
-            watchers: vec![Box::new(dep_rx1), Box::new(dep_rx2)],
+            watchers: vec![Box::new(dep1_watcher), Box::new(dep2_watcher)],
             activator: &activator,
         });
 
@@ -829,12 +873,16 @@ mod test {
         dep_tx1.send_replace(1);
         dep_tx2.send_replace(1);
 
+        // Verify that the dependency changes have not yet been consumed
+        // because the first activation is still paused.
+        assert_eq!(dep1_changes_seen.load(Ordering::SeqCst), 0);
+        assert_eq!(dep2_changes_seen.load(Ordering::SeqCst), 0);
+
         // Unpause the task so that it completes and the select loop runs
         // again.
         wait_tx.send(()).await.unwrap();
 
-        // The two ready dependencies should be collapsed into one activation.
-        // First, verify that the next activation starts and was caused by a
+        // Verify that the next activation starts and was caused by a
         // dependency.
         assert_eq!(ready_rx.recv().await.unwrap(), 2);
         let status = driver.task_status(&task_handle);
@@ -842,19 +890,12 @@ mod test {
         assert_eq!(current.iteration, 2);
         assert_eq!(current.reason, ActivationReason::Dependency);
 
-        // Next, unpause the task so that it completes and the select loop runs
-        // again.
-        wait_tx.send(()).await.unwrap();
+        // Finally, verify that both dependency changes have been consumed as a
+        // part of this activation.
+        assert_eq!(dep1_changes_seen.load(Ordering::SeqCst), 1);
+        assert_eq!(dep2_changes_seen.load(Ordering::SeqCst), 1);
 
-        // Finally, verify that no second dependency-triggered activation
-        // starts. We do that by waiting for a second and confirming that the
-        // task is idle and the last completed iteration is the same as in the
-        // previous step.
-        tokio::time::sleep(Duration::from_secs(1)).await;
-        let status = driver.task_status(&task_handle);
-        assert!(status.current.is_idle());
-        assert!(status.last.has_completed());
-        assert_eq!(status.last.unwrap_completion().iteration, 2);
-        assert_matches!(ready_rx.try_recv(), Err(TryRecvError::Empty));
+        // Unpause the task so that it completes.
+        wait_tx.send(()).await.unwrap();
     }
 }
